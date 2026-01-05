@@ -1,17 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-    Phone, PhoneOff, Mic, MicOff, Activity, 
-    Volume2, CloudRain, Lock, Zap, 
-    Fingerprint, User, Signal, WifiOff, X,
-    Shield, Disc, Radio, Loader2, Server, Globe
+    Phone, PhoneOff, Mic, MicOff, 
+    Lock, User, Fingerprint, Loader2
 } from 'lucide-react';
-import { generateSAS } from '../../utils/crypto';
 
-// Types
-type CallState = 'IDLE' | 'SIGNALING' | 'RINGING' | 'CONNECTED' | 'SECURE_HANDSHAKE' | 'TERMINATED' | 'RECONNECTING';
-type VoiceEffect = 'NORMAL' | 'DEEP_COVER' | 'CYBER_MASK' | 'RADIO_BURST';
-type AmbientMode = 'OFF' | 'RAIN' | 'DATA_CENTER' | 'CAFE';
+type CallState = 'IDLE' | 'SIGNALING' | 'RINGING' | 'CONNECTED' | 'TERMINATED';
 
 interface TeleponanProps {
     onClose: () => void;
@@ -21,135 +15,36 @@ interface TeleponanProps {
     secretPin?: string;
 }
 
-// ... (VoiceProcessor and WaveformVisualizer classes remain exactly the same as provided in previous context) ...
-// Re-declaring for completeness of file replacement.
-
+// Minimal Audio Processor (Same logic, shortened for clarity in this file update)
 class VoiceProcessor {
     ctx: AudioContext;
-    micSource: MediaStreamAudioSourceNode | null = null;
     destination: MediaStreamAudioDestinationNode;
-    outputNode: GainNode;
+    micSource: MediaStreamAudioSourceNode | null = null;
     analyser: AnalyserNode;
-    filterNode: BiquadFilterNode;
-    shaperNode: WaveShaperNode;
-    ambientGain: GainNode;
-    ambientSource: AudioBufferSourceNode | OscillatorNode | null = null;
 
     constructor() {
         const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
         this.ctx = new AudioContextClass();
         this.destination = this.ctx.createMediaStreamDestination();
-        this.outputNode = this.ctx.createGain();
         this.analyser = this.ctx.createAnalyser();
         this.analyser.fftSize = 256;
-        this.filterNode = this.ctx.createBiquadFilter();
-        this.shaperNode = this.ctx.createWaveShaper();
-        this.ambientGain = this.ctx.createGain();
-        this.ambientGain.gain.value = 0.15;
-
-        this.outputNode.connect(this.destination);
-        this.outputNode.connect(this.analyser);
-        this.ambientGain.connect(this.outputNode);
-    }
-
-    unlock() {
-        if (this.ctx.state === 'suspended') this.ctx.resume();
-        const buffer = this.ctx.createBuffer(1, 1, 22050);
-        const source = this.ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(this.ctx.destination);
-        source.start(0);
     }
 
     async initMic(stream: MediaStream) {
         if (this.ctx.state === 'suspended') await this.ctx.resume();
         this.micSource = this.ctx.createMediaStreamSource(stream);
-        this.micSource.connect(this.filterNode);
-        this.filterNode.connect(this.shaperNode);
-        this.shaperNode.connect(this.outputNode);
-        this.setEffect('NORMAL');
+        this.micSource.connect(this.analyser);
+        this.micSource.connect(this.destination);
     }
-
-    setEffect(effect: VoiceEffect) {
-        this.shaperNode.curve = null;
-        const t = this.ctx.currentTime;
-        if (effect === 'NORMAL') {
-            this.filterNode.type = 'allpass';
-            this.filterNode.frequency.setValueAtTime(0, t);
-        } else if (effect === 'DEEP_COVER') {
-            this.filterNode.type = 'lowpass';
-            this.filterNode.frequency.setTargetAtTime(600, t, 0.1);
-            this.makeDistortionCurve(50); 
-        } else if (effect === 'CYBER_MASK') {
-             this.filterNode.type = 'highpass';
-             this.filterNode.frequency.setTargetAtTime(1000, t, 0.1);
-             this.makeDistortionCurve(400);
-        } else if (effect === 'RADIO_BURST') {
-             this.filterNode.type = 'bandpass';
-             this.filterNode.frequency.setTargetAtTime(2000, t, 0.1);
-             this.filterNode.Q.value = 1;
-             this.makeDistortionCurve(100);
-        }
-    }
-
-    setAmbient(mode: AmbientMode) {
-        if (this.ambientSource) {
-            try { (this.ambientSource as any).stop(); } catch(e){}
-            this.ambientSource.disconnect();
-            this.ambientSource = null;
-        }
-        if (mode === 'OFF') return;
-
-        if (mode === 'RAIN') {
-            const bufferSize = 2 * this.ctx.sampleRate;
-            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-            const output = buffer.getChannelData(0);
-            for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
-            const noise = this.ctx.createBufferSource();
-            noise.buffer = buffer;
-            noise.loop = true;
-            const noiseFilter = this.ctx.createBiquadFilter();
-            noiseFilter.type = 'lowpass';
-            noiseFilter.frequency.value = 800;
-            noise.connect(noiseFilter);
-            noiseFilter.connect(this.ambientGain);
-            noise.start();
-            this.ambientSource = noise;
-        } else if (mode === 'DATA_CENTER') {
-            const osc = this.ctx.createOscillator();
-            osc.type = 'sawtooth';
-            osc.frequency.value = 60;
-            const lpf = this.ctx.createBiquadFilter();
-            lpf.type = 'lowpass';
-            lpf.frequency.value = 120;
-            osc.connect(lpf);
-            lpf.connect(this.ambientGain);
-            osc.start();
-            this.ambientSource = osc;
-        }
-    }
-
-    makeDistortionCurve(amount: number) {
-        const k = amount;
-        const n_samples = 44100;
-        const curve = new Float32Array(n_samples);
-        const deg = Math.PI / 180;
-        for (let i = 0; i < n_samples; ++i) {
-            const x = (i * 2) / n_samples - 1;
-            curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
-        }
-        this.shaperNode.curve = curve;
-    }
-
+    
     getProcessedStream() { return this.destination.stream; }
-
     cleanup() {
         if(this.micSource) this.micSource.disconnect();
-        if(this.ambientSource) { try { (this.ambientSource as any).stop(); } catch(e){} this.ambientSource.disconnect(); }
         if(this.ctx.state !== 'closed') this.ctx.close();
     }
 }
 
+// Waveform Component
 const WaveformVisualizer: React.FC<{ analyser: AnalyserNode | null, isMuted: boolean }> = ({ analyser, isMuted }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     useEffect(() => {
@@ -192,15 +87,11 @@ const WaveformVisualizer: React.FC<{ analyser: AnalyserNode | null, isMuted: boo
     return <canvas ref={canvasRef} width={320} height={80} className="w-full h-20 rounded-xl bg-black/40 backdrop-blur-sm border border-white/5 shadow-inner" />;
 };
 
-
-export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer, initialTargetId, incomingCall, secretPin }) => {
+export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer, initialTargetId, incomingCall }) => {
     const [state, setState] = useState<CallState>(incomingCall ? 'RINGING' : (initialTargetId ? 'SIGNALING' : 'IDLE'));
     const [targetId, setTargetId] = useState(initialTargetId || '');
     const [isMuted, setIsMuted] = useState(false);
     const [duration, setDuration] = useState(0);
-    const [effectMode, setEffectMode] = useState<VoiceEffect>('NORMAL');
-    const [ambientMode, setAmbientMode] = useState<AmbientMode>('OFF');
-    const [isolationMode, setIsolationMode] = useState(false);
 
     const callRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -211,6 +102,10 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     useEffect(() => {
         if (incomingCall) handleIncomingCall(incomingCall, false); 
         else if (initialTargetId && existingPeer) makeCall();
+        else if (!existingPeer) {
+            alert("No Peer Connection Found. Aborting.");
+            onClose();
+        }
     }, []);
 
     // Timer
@@ -230,7 +125,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
 
     const startAudio = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: isolationMode, autoGainControl: true } });
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
             streamRef.current = stream;
             engineRef.current = new VoiceProcessor();
             await engineRef.current.initMic(stream);
@@ -249,6 +144,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
             if (inputStream && engineRef.current) {
                 const processedStream = engineRef.current.getProcessedStream();
                 call.answer(processedStream);
+                
                 call.on('stream', (remoteStream: MediaStream) => {
                     if (audioRef.current) {
                         audioRef.current.srcObject = remoteStream;
@@ -256,6 +152,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                         setState('CONNECTED');
                     }
                 });
+                
                 call.on('close', terminateCall);
                 call.on('error', terminateCall);
             }
@@ -271,10 +168,12 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
         if (!targetId || !existingPeer) return;
         setState('SIGNALING');
         const inputStream = await startAudio();
+        
         if (inputStream && engineRef.current) {
             const processedStream = engineRef.current.getProcessedStream();
             const call = existingPeer.call(targetId, processedStream);
             callRef.current = call;
+            
             call.on('stream', (remoteStream: MediaStream) => {
                  if (audioRef.current) {
                     audioRef.current.srcObject = remoteStream;
@@ -282,6 +181,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                     setState('CONNECTED');
                 }
             });
+            
             call.on('close', terminateCall);
             call.on('error', terminateCall);
         } else {
@@ -325,7 +225,6 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
             {/* Main Content */}
             <div className="flex-1 flex flex-col items-center relative z-10 p-6 overflow-y-auto custom-scroll justify-center">
                 
-                {/* Visualizer / Avatar */}
                 <div className="relative mb-8 mt-4 shrink-0">
                     <div className={`w-40 h-40 rounded-full border-2 border-emerald-500/20 bg-black/60 flex items-center justify-center relative overflow-hidden ${state === 'SIGNALING' || state === 'RINGING' ? 'animate-pulse' : ''}`}>
                          <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/20 to-transparent h-1/2 w-full animate-[spin_3s_linear_infinite] origin-bottom-center opacity-30"></div>

@@ -1,6 +1,6 @@
 
 import React, { useEffect } from 'react';
-import { ShieldAlert, ShieldCheck, X, Zap, ScanLine, Fingerprint, Check } from 'lucide-react';
+import { ShieldCheck, X, Check } from 'lucide-react';
 
 interface ConnectionNotificationProps {
     identity: string;
@@ -17,16 +17,8 @@ export const ConnectionNotification: React.FC<ConnectionNotificationProps> = ({ 
 
     return (
         <div className="fixed inset-0 z-[11000] bg-black/60 backdrop-blur-[2px] flex items-end justify-center animate-fade-in font-sans pointer-events-auto">
-            {/* 
-                Bottom padding logic: 
-                env(safe-area-inset-bottom) + 16px margin.
-                This floats the card ABOVE the home bar swipe area.
-            */}
             <div className="w-full max-w-sm mx-4 mb-[calc(env(safe-area-inset-bottom)+16px)]">
-                
                 <div className="bg-[#121214] border border-white/10 rounded-[28px] overflow-hidden shadow-2xl relative animate-slide-up ring-1 ring-emerald-500/20 pointer-events-auto">
-                    
-                    {/* Security Strip */}
                     <div className="h-1 w-full bg-gradient-to-r from-emerald-600 via-emerald-400 to-emerald-600 animate-pulse"></div>
 
                     <div className="p-6">
@@ -49,18 +41,11 @@ export const ConnectionNotification: React.FC<ConnectionNotificationProps> = ({ 
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
-                            <button 
-                                onClick={onDecline}
-                                className="h-12 flex items-center justify-center gap-2 rounded-xl bg-white/5 hover:bg-red-500/10 border border-white/5 text-neutral-400 hover:text-red-500 transition-all active:scale-95 pointer-events-auto"
-                            >
+                            <button onClick={onDecline} className="h-12 flex items-center justify-center gap-2 rounded-xl bg-white/5 hover:bg-red-500/10 border border-white/5 text-neutral-400 hover:text-red-500 transition-all active:scale-95 pointer-events-auto">
                                 <X size={18} />
                                 <span className="text-[10px] font-black uppercase tracking-widest">DECLINE</span>
                             </button>
-                            
-                            <button 
-                                onClick={onAccept}
-                                className="h-12 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all active:scale-95 shadow-lg shadow-emerald-900/20 pointer-events-auto"
-                            >
+                            <button onClick={onAccept} className="h-12 flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-all active:scale-95 shadow-lg shadow-emerald-900/20 pointer-events-auto">
                                 <Check size={18} strokeWidth={3} />
                                 <span className="text-[10px] font-black uppercase tracking-widest">ACCEPT</span>
                             </button>
