@@ -60,7 +60,7 @@ export const compressImage = (file: File): Promise<{base64: string, size: number
                 dataUrl = canvas.toDataURL(mimeType, 0.75);
             }
             
-            // Extract raw base64
+            // Extract raw base64 strictly
             const base64 = dataUrl.split(',')[1];
             
             // Calculate size

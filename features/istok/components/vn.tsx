@@ -40,23 +40,33 @@ export const AudioMessagePlayer = React.memo(({ src, duration, isMasked, mimeTyp
     useEffect(() => {
         let url = src;
 
-        // If it's raw base64 (not a data URI or blob URL), fix it
-        if (!src.startsWith('blob:') && !src.startsWith('data:')) {
-             url = `data:${mimeType};base64,${src}`;
-        }
-        
-        // Convert to Blob for stability if it's a data URI
-        if (url.startsWith('data:')) {
-             fetch(url)
-                .then(res => res.blob())
-                .then(blob => {
-                    const blobUrl = URL.createObjectURL(blob);
-                    blobUrlRef.current = blobUrl;
-                    if (audioRef.current) audioRef.current.src = blobUrl;
-                })
-                .catch(() => setError(true));
-        } else {
-             if (audioRef.current) audioRef.current.src = url;
+        try {
+            // Check if it's base64 but missing header
+            if (!src.startsWith('blob:') && !src.startsWith('data:')) {
+                // Remove whitespace just in case
+                const cleanSrc = src.trim();
+                url = `data:${mimeType};base64,${cleanSrc}`;
+            }
+            
+            // Convert to Blob for stability if it's a data URI
+            if (url.startsWith('data:')) {
+                 fetch(url)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const blobUrl = URL.createObjectURL(blob);
+                        blobUrlRef.current = blobUrl;
+                        if (audioRef.current) audioRef.current.src = blobUrl;
+                    })
+                    .catch((e) => {
+                        console.error("Audio Blob conversion failed", e);
+                        setError(true);
+                    });
+            } else {
+                 if (audioRef.current) audioRef.current.src = url;
+            }
+        } catch(e) {
+            console.error("Audio Init Error", e);
+            setError(true);
         }
 
         return () => {
