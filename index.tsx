@@ -17,7 +17,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 
 // Register Service Worker for PWA Capabilities (Notifications & Offline)
-// REMOVED PROD CHECK: Allow SW in dev for testing connectivity features.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
@@ -25,7 +24,7 @@ if ('serviceWorker' in navigator) {
         console.log('SW Registered:', registration.scope);
       })
       .catch(error => {
-        console.log('SW Registration Failed (Ensure sw.js is in public/):', error);
+        console.log('SW Registration Failed:', error);
       });
   });
 }

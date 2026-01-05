@@ -351,7 +351,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     };
 
     return (
-        <div className="fixed inset-0 z-[12000] bg-[#050505] flex flex-col font-mono text-emerald-500 animate-fade-in pointer-events-auto touch-action-none">
+        <div className="fixed inset-0 z-[10000] bg-[#050505] flex flex-col font-mono text-emerald-500 animate-fade-in">
             <audio ref={audioRef} className="hidden" playsInline autoPlay />
             
             {/* Background FX */}
@@ -368,7 +368,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col items-center relative z-10 p-6 overflow-y-auto custom-scroll justify-center pb-24">
+            <div className="flex-1 flex flex-col items-center relative z-10 p-6 overflow-y-auto custom-scroll justify-center">
                 
                 {/* Visualizer / Avatar */}
                 <div className="relative mb-8 mt-4 shrink-0">
@@ -400,9 +400,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                 {state === 'CONNECTED' && (
                     <div className="w-full max-w-sm space-y-6 animate-slide-up pb-8">
                         <WaveformVisualizer analyser={engineRef.current?.analyser || null} isMuted={isMuted} />
-                        
-                        {/* CONTROLS - Positioned higher up to avoid overlapping with bottom gestures */}
-                        <div className="flex items-center justify-center gap-8 pt-4">
+                        <div className="flex items-center justify-center gap-6 pt-4">
                              <button onClick={toggleMute} className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg ${isMuted ? 'bg-amber-500 text-black animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'}`}>
                                  {isMuted ? <MicOff size={24}/> : <Mic size={24}/>}
                              </button>

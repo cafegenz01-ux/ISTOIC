@@ -47,20 +47,14 @@ export const NoteBatchActions: React.FC<NoteBatchActionsProps> = ({
 
     return (
         <div className={`
-            fixed transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) left-0 right-0 
+            fixed transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1) left-1/2 -translate-x-1/2
             z-[2000] 
-            /* MOBILE: Stick to bottom like a sheet, covering navbar */
-            bottom-0 md:bottom-10 md:left-1/2 md:right-auto md:-translate-x-1/2 md:w-auto md:min-w-[320px] md:max-w-[95vw]
-            ${isVisible ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-[150%] opacity-0 pointer-events-none'}
+            bottom-24 md:bottom-10 w-auto min-w-[320px] max-w-[95vw]
+            ${isVisible ? 'translate-y-0 opacity-100 scale-100 pointer-events-auto' : 'translate-y-[150%] opacity-0 scale-90 pointer-events-none'}
         `}>
             <div 
-                className={`
-                    bg-white/95 dark:bg-[#0a0a0b]/95 backdrop-blur-2xl border-t md:border border-black/5 dark:border-white/10 
-                    shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.5)] md:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] 
-                    md:rounded-[32px] p-4 md:p-2 md:pr-3 flex items-center justify-between md:justify-start gap-3 ring-1 ring-white/10 pointer-events-auto
-                    pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-2
-                `}
-                onClick={(e) => e.stopPropagation()} 
+                className="bg-white/95 dark:bg-[#0a0a0b]/95 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] rounded-[32px] p-2 pr-3 flex items-center gap-3 ring-1 ring-white/10 pointer-events-auto"
+                onClick={(e) => e.stopPropagation()} // Prevent clicks from bubbling to background
             >
                 
                 {/* Select Toggle */}
@@ -68,7 +62,7 @@ export const NoteBatchActions: React.FC<NoteBatchActionsProps> = ({
                     onClick={(e) => { e.stopPropagation(); isAllSelected ? onDeselectAll() : onSelectAll(); }}
                     type="button"
                     className={`
-                        h-12 px-5 rounded-[24px] flex flex-col items-center justify-center min-w-[60px] shadow-sm transition-all active:scale-95 border
+                        h-12 px-5 rounded-[24px] flex flex-col items-center justify-center min-w-[70px] shadow-sm transition-all active:scale-95 border
                         ${isAllSelected 
                             ? 'bg-black dark:bg-white text-white dark:text-black border-transparent' 
                             : 'bg-zinc-100 dark:bg-white/5 border-black/5 dark:border-white/5 text-neutral-500 hover:text-black dark:hover:text-white'
@@ -81,35 +75,32 @@ export const NoteBatchActions: React.FC<NoteBatchActionsProps> = ({
                     </span>
                 </button>
 
-                {/* Counter & Actions Container */}
-                <div className="flex items-center gap-3 flex-1 justify-end md:justify-start">
-                    
-                    {/* Counter (Hidden on very small screens) */}
-                    <div className="hidden sm:flex flex-col px-1 min-w-[50px] text-right md:text-left">
-                        <span className="text-[8px] font-black text-neutral-400 uppercase tracking-widest">SELECTED</span>
-                        <span className="text-xl font-black italic leading-none text-black dark:text-white font-sans">
-                            {selectedCount}<span className="text-neutral-400 text-sm opacity-50">/{totalVisibleCount}</span>
-                        </span>
-                    </div>
+                {/* Counter */}
+                <div className="flex flex-col px-1 min-w-[50px]">
+                    <span className="text-[8px] font-black text-neutral-400 uppercase tracking-widest">SELECTED</span>
+                    <span className="text-xl font-black italic leading-none text-black dark:text-white font-sans">
+                        {selectedCount}<span className="text-neutral-400 text-sm opacity-50">/{totalVisibleCount}</span>
+                    </span>
+                </div>
 
-                    <div className="w-[1px] h-8 bg-black/5 dark:bg-white/10 mx-1 hidden sm:block"></div>
+                <div className="w-[1px] h-8 bg-black/5 dark:bg-white/10 mx-1"></div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1">
-                        <ActionButton icon={<Bookmark size={18} />} label="PIN" onClick={onPinSelected} disabled={selectedCount === 0} />
-                        <ActionButton icon={isViewingArchive ? <ArchiveRestore size={18} /> : <Archive size={18} />} label={isViewingArchive ? 'RESTORE' : 'ARCHIVE'} onClick={onArchiveSelected} disabled={selectedCount === 0} />
-                        <div className="w-[1px] h-6 bg-black/5 dark:bg-white/5 mx-1"></div>
-                        <ActionButton icon={<ShieldAlert size={18} />} label="PURGE" onClick={onDeleteSelected} variant="danger" disabled={selectedCount === 0} />
-                    </div>
+                {/* Actions */}
+                <div className="flex items-center gap-1">
+                    <ActionButton icon={<Bookmark size={18} />} label="PIN" onClick={onPinSelected} disabled={selectedCount === 0} />
+                    <ActionButton icon={isViewingArchive ? <ArchiveRestore size={18} /> : <Archive size={18} />} label={isViewingArchive ? 'RESTORE' : 'ARCHIVE'} onClick={onArchiveSelected} disabled={selectedCount === 0} />
+                    <ActionButton icon={<FileJson size={18} />} label="EXPORT" onClick={handleExport} disabled={selectedCount === 0} />
+                    <div className="w-[1px] h-6 bg-black/5 dark:bg-white/5 mx-1"></div>
+                    <ActionButton icon={<ShieldAlert size={18} />} label="PURGE" onClick={onDeleteSelected} variant="danger" disabled={selectedCount === 0} />
                 </div>
 
                 {/* Close */}
                 <button 
                     onClick={(e) => { e.stopPropagation(); onCancel(); }}
                     type="button"
-                    className="w-10 h-10 md:w-8 md:h-8 rounded-full bg-zinc-100 dark:bg-white/5 hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-black dark:hover:text-white transition-all ml-1 active:scale-90"
+                    className="w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-black dark:hover:text-white transition-all ml-1 active:scale-90"
                 >
-                    <X size={16} />
+                    <X size={14} />
                 </button>
             </div>
         </div>
