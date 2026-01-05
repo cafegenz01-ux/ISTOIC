@@ -3,36 +3,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, User, Trash2, Edit3, Activity, Clock, 
     Smartphone, Monitor, Circle, Search, ArrowRight, ShieldAlert,
-    Wifi, WifiOff, Zap, Eye, EyeOff, Key, Lock, Fingerprint, RefreshCw,
-    Users, UserPlus, Save, MessageSquare
+    Wifi, WifiOff, Zap, Eye, EyeOff, Key, Lock, Fingerprint, RefreshCw
 } from 'lucide-react';
-import useLocalStorage from '../../../hooks/useLocalStorage';
 
-// Tipe Data Kontak Persisten (Mirip Buku Telepon)
-export interface IStokContact {
-    id: string;      // Peer ID (Nomor Teleponnya)
-    name: string;    // Nama yang kita berikan (Misal: "Budi")
-    addedAt: number;
-    trustLevel: 'VERIFIED' | 'UNKNOWN';
-}
-
-// Tipe Data Sesi Aktif (Chat yang sedang berlangsung)
 export interface IStokSession {
-    id: string; 
-    name: string; // Nama tampilan (bisa dari Kontak atau Anomaly)
-    customName?: string;
+    id: string; // Peer ID
+    name: string; // Alias / Anomaly Name
+    customName?: string; // User renamed
     lastSeen: number;
     status: 'ONLINE' | 'BACKGROUND' | 'OFFLINE';
-    pin: string;
+    pin: string; // Saved Access Key
     createdAt: number;
-    isContact?: boolean; // Apakah ini ada di buku kontak?
 }
 
 export interface IStokProfile {
     id: string;
     username: string;
     created: number;
-    idChangeHistory: number[];
+    idChangeHistory: number[]; // Array of timestamps when ID was changed
 }
 
 interface SidebarIStokContactProps {
@@ -40,10 +28,9 @@ interface SidebarIStokContactProps {
     onClose: () => void;
     sessions: IStokSession[];
     profile: IStokProfile;
-    onSelect: (session: IStokSession) => void; // Untuk Chat
-    onCallContact: (contact: IStokContact) => void; // Untuk Dial Kontak Offline
-    onRenameSession: (id: string, newName: string) => void;
-    onDeleteSession: (id: string) => void;
+    onSelect: (session: IStokSession) => void;
+    onRename: (id: string, newName: string) => void;
+    onDelete: (id: string) => void;
     onRegenerateProfile: () => void;
     currentPeerId: string | null;
 }
@@ -54,75 +41,88 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
     sessions,
     profile,
     onSelect,
-    onCallContact,
-    onRenameSession,
-    onDeleteSession,
+    onRename,
+    onDelete,
     onRegenerateProfile,
     currentPeerId
 }) => {
-    // --- STATE ---
-    const [activeTab, setActiveTab] = useState<'CHATS' | 'CONTACTS'>('CHATS');
-    const [contacts, setContacts] = useLocalStorage<IStokContact[]>('istok_saved_contacts', []);
     const [search, setSearch] = useState('');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editName, setEditName] = useState('');
+    const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
     
-    // Add Contact State
-    const [isAddingContact, setIsAddingContact] = useState(false);
-    const [newContactId, setNewContactId] = useState('');
-    const [newContactName, setNewContactName] = useState('');
+    // Identity Management State
+    const [remainingChanges, setRemainingChanges] = useState(2);
+    const [nextChangeDate, setNextChangeDate] = useState<string | null>(null);
+    
+    // State to toggle PIN visibility per session ID
+    const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
 
-    // --- LOGIC: CONTACT MANAGEMENT ---
+    // --- LOGIC: RATE LIMITING (2x per Month) ---
+    useEffect(() => {
+        if (profile && profile.idChangeHistory) {
+            const now = Date.now();
+            const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+            
+            // Filter changes within last 30 days
+            const recentChanges = profile.idChangeHistory.filter(ts => ts > thirtyDaysAgo);
+            const left = Math.max(0, 2 - recentChanges.length);
+            
+            setRemainingChanges(left);
 
-    const handleAddContact = () => {
-        if (!newContactId || !newContactName) return;
-        
-        // Prevent duplicate IDs
-        if (contacts.some(c => c.id === newContactId)) {
-            alert("Kontak dengan ID ini sudah ada.");
-            return;
+            if (left === 0 && recentChanges.length > 0) {
+                // Calculate when the oldest of the recent changes "expires"
+                const oldestChange = Math.min(...recentChanges);
+                const availableAt = oldestChange + (30 * 24 * 60 * 60 * 1000);
+                setNextChangeDate(new Date(availableAt).toLocaleDateString());
+            } else {
+                setNextChangeDate(null);
+            }
         }
+    }, [profile]);
 
-        const newContact: IStokContact = {
-            id: newContactId.trim(),
-            name: newContactName.trim(),
-            addedAt: Date.now(),
-            trustLevel: 'UNKNOWN'
-        };
-
-        setContacts(prev => [...prev, newContact]);
-        setIsAddingContact(false);
-        setNewContactId('');
-        setNewContactName('');
-        setActiveTab('CONTACTS');
+    const handleRegenerateClick = () => {
+        if (remainingChanges > 0) {
+            if (confirm(`Ganti Identitas (ID & Nama)?\n\nSisa kuota bulan ini: ${remainingChanges} kali.\nID lama tidak akan bisa dihubungi lagi.`)) {
+                onRegenerateProfile();
+            }
+        } else {
+            alert(`Kuota ganti identitas habis.\nCoba lagi setelah: ${nextChangeDate}`);
+        }
     };
 
-    const handleDeleteContact = (id: string) => {
-        if (confirm("Hapus kontak ini permanen?")) {
-            setContacts(prev => prev.filter(c => c.id !== id));
-        }
+    const filtered = useMemo(() => {
+        return sessions.filter(s => 
+            (s.customName || s.name || s.id).toLowerCase().includes(search.toLowerCase())
+        ).sort((a, b) => {
+            // Sort by Status (Online first), then Last Seen
+            if (a.status === 'ONLINE' && b.status !== 'ONLINE') return -1;
+            if (a.status !== 'ONLINE' && b.status === 'ONLINE') return 1;
+            return b.lastSeen - a.lastSeen;
+        });
+    }, [sessions, search]);
+
+    const handleStartRename = (s: IStokSession, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setEditingId(s.id);
+        setEditName(s.customName || s.name);
     };
 
-    // Merge logic: Check if active sessions match any saved contacts
-    const mergedSessions = useMemo(() => {
-        return sessions.map(s => {
-            const contact = contacts.find(c => c.id === s.id);
-            return {
-                ...s,
-                name: contact ? contact.name : (s.customName || s.name),
-                isContact: !!contact
-            };
-        }).sort((a, b) => b.lastSeen - a.lastSeen);
-    }, [sessions, contacts]);
+    const handleSaveRename = () => {
+        if (editingId && editName.trim()) {
+            onRename(editingId, editName.trim());
+        }
+        setEditingId(null);
+    };
 
-    const filteredSessions = mergedSessions.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
-    
-    const filteredContacts = contacts.filter(c => 
-        c.name.toLowerCase().includes(search.toLowerCase()) || 
-        c.id.includes(search)
-    );
+    const togglePinVisibility = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setRevealedPins(prev => ({ ...prev, [id]: !prev[id] }));
+    };
 
     const handleCopyId = () => {
         navigator.clipboard.writeText(profile.id);
-        alert("ID Anda disalin. Bagikan ke teman agar mereka bisa 'Add Contact'.");
+        alert("ID Copied to Clipboard");
     };
 
     return (
@@ -133,7 +133,7 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                 onClick={onClose}
             />
 
-            {/* Sidebar Container */}
+            {/* Sidebar */}
             <div className={`
                 fixed inset-y-0 right-0 w-full max-w-xs sm:max-w-md
                 bg-[#09090b] border-l border-white/10 z-[2010] shadow-[0_0_50px_rgba(0,0,0,0.5)]
@@ -141,209 +141,178 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                 flex flex-col font-sans
                 ${isOpen ? 'translate-x-0' : 'translate-x-full'}
             `}>
-                
-                {/* 1. HEADER & IDENTITY */}
-                <div className="p-5 border-b border-white/10 bg-[#050505]">
-                    <div className="flex justify-between items-start mb-4">
-                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
-                            <Zap size={14} className="text-emerald-500 fill-current" /> ISTOK_MESSENGER
+                <div className="p-6 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/[0.02]">
+                    <div>
+                        <h2 className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
+                            <Zap size={16} className="text-emerald-500 fill-current" /> CONTACT_MATRIX
                         </h2>
-                        <button onClick={onClose} className="p-1.5 text-neutral-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
-                            <X size={18} />
-                        </button>
                     </div>
+                    <button onClick={onClose} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+                        <X size={18} />
+                    </button>
+                </div>
 
-                    {/* My Profile Card (Compact) */}
-                    <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/5 group relative overflow-hidden">
-                        <div className="w-10 h-10 rounded-full bg-emerald-600/20 text-emerald-500 flex items-center justify-center border border-emerald-500/30 shrink-0">
-                            <User size={20} />
+                {/* USER IDENTITY CARD (Improved) */}
+                <div className="p-4 bg-[#050505] border-b border-white/5">
+                    <div className="flex flex-col gap-4 p-5 rounded-2xl border border-emerald-500/20 bg-emerald-950/10 relative overflow-hidden">
+                        {/* Background Pulse */}
+                        <div className="absolute -right-4 -top-4 w-24 h-24 bg-emerald-500/10 blur-xl rounded-full animate-pulse"></div>
+
+                        <div className="flex justify-between items-start z-10">
+                            <div>
+                                <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest mb-1">MY_IDENTITY</p>
+                                <h3 className="text-lg font-black text-white tracking-tight">{profile.username}</h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-[8px] font-mono px-2 py-1 rounded border ${remainingChanges > 0 ? 'border-emerald-500/30 text-emerald-500' : 'border-red-500/30 text-red-500'}`}>
+                                    CHANGES: {remainingChanges}/2
+                                </span>
+                                <button 
+                                    onClick={handleRegenerateClick}
+                                    className={`p-2 rounded-lg transition-all ${remainingChanges > 0 ? 'bg-white/5 hover:bg-white/10 text-white' : 'bg-white/5 text-neutral-600 cursor-not-allowed'}`}
+                                    title={remainingChanges > 0 ? "Generate New Identity" : `Cooldown until ${nextChangeDate}`}
+                                >
+                                    <RefreshCw size={14} />
+                                </button>
+                            </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-0.5">MY ID</p>
-                            <code className="text-xs font-mono text-white truncate block cursor-pointer hover:text-emerald-400 transition-colors" onClick={handleCopyId}>
+
+                        <button 
+                            onClick={handleCopyId}
+                            className="flex flex-col gap-1 p-3 bg-black/40 rounded-xl border border-emerald-500/10 hover:border-emerald-500/40 transition-all text-left group z-10"
+                        >
+                            <span className="text-[8px] text-neutral-500 font-mono">UNIQUE_ID (TAP TO COPY)</span>
+                            <code className="text-[10px] text-emerald-400 font-mono break-all group-hover:text-emerald-300">
                                 {profile.id}
                             </code>
-                        </div>
-                        <button onClick={onRegenerateProfile} className="p-2 text-neutral-500 hover:text-white" title="Reset Identity">
-                            <RefreshCw size={14} />
                         </button>
                     </div>
                 </div>
 
-                {/* 2. TABS & SEARCH */}
-                <div className="px-4 pt-4 pb-2 bg-[#09090b] space-y-3">
-                    <div className="flex bg-white/5 p-1 rounded-xl">
-                        <button 
-                            onClick={() => setActiveTab('CHATS')}
-                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${activeTab === 'CHATS' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-white'}`}
-                        >
-                            <MessageSquare size={12} /> CHATS
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('CONTACTS')}
-                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${activeTab === 'CONTACTS' ? 'bg-emerald-600 text-white shadow-lg' : 'text-neutral-500 hover:text-white'}`}
-                        >
-                            <Users size={12} /> KONTAK
-                        </button>
-                    </div>
-
+                <div className="p-4 border-b border-white/5 bg-[#050505]">
                     <div className="relative group">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-emerald-500 transition-colors" size={14} />
                         <input 
                             type="text" 
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder={activeTab === 'CHATS' ? "Cari Chat..." : "Cari Teman..."}
+                            placeholder="SEARCH FREQUENCY..." 
                             className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-3 text-[10px] text-white focus:outline-none focus:border-emerald-500/50 uppercase tracking-wider placeholder:text-neutral-700 font-bold transition-all"
                         />
                     </div>
                 </div>
 
-                {/* 3. LIST CONTENT */}
-                <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-2 bg-[#09090b]">
-                    
-                    {/* --- TAB: CHATS (ACTIVE SESSIONS) --- */}
-                    {activeTab === 'CHATS' && (
-                        <>
-                            {filteredSessions.length === 0 ? (
-                                <div className="text-center py-12 opacity-30 flex flex-col items-center">
-                                    <MessageSquare size={32} className="mb-3 text-neutral-500" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">BELUM ADA CHAT</p>
-                                </div>
-                            ) : (
-                                filteredSessions.map(s => {
-                                    const isConnected = currentPeerId === s.id;
-                                    return (
-                                        <div 
-                                            key={s.id}
-                                            onClick={() => onSelect(s)}
-                                            className={`
-                                                relative p-3.5 rounded-2xl border transition-all cursor-pointer group flex items-center gap-3
-                                                ${isConnected ? 'bg-emerald-950/10 border-emerald-500/30' : 'bg-white/5 border-white/5 hover:bg-white/10'}
-                                            `}
-                                        >
-                                            <div className="relative">
-                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm ${s.isContact ? 'bg-blue-600' : 'bg-neutral-700'}`}>
-                                                    {s.name.substring(0, 2).toUpperCase()}
-                                                </div>
-                                                {s.status === 'ONLINE' && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#09090b]"></div>}
-                                            </div>
-                                            
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-center mb-0.5">
-                                                    <h4 className={`text-xs font-bold truncate ${isConnected ? 'text-emerald-400' : 'text-white'}`}>
-                                                        {s.name}
-                                                    </h4>
-                                                    <span className="text-[8px] font-mono text-neutral-600">{new Date(s.lastSeen).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                                                </div>
-                                                <p className="text-[9px] text-neutral-500 truncate flex items-center gap-1">
-                                                    {isConnected ? <Wifi size={8} className="text-emerald-500"/> : <Activity size={8}/>}
-                                                    {isConnected ? 'Terhubung' : 'Terakhir dilihat...'}
-                                                </p>
-                                            </div>
+                <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-3 bg-[#050505]">
+                    {filtered.length === 0 ? (
+                        <div className="text-center py-20 opacity-30 flex flex-col items-center">
+                            <Activity size={32} className="mb-3 text-neutral-500" />
+                            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">NO_SIGNALS_FOUND</p>
+                        </div>
+                    ) : (
+                        filtered.map(s => {
+                            const isConnected = currentPeerId === s.id;
+                            const isPinRevealed = revealedPins[s.id];
 
-                                            {/* Action: Save Unknown to Contacts */}
-                                            {!s.isContact && (
-                                                <button 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setNewContactId(s.id);
-                                                        setNewContactName(s.name);
-                                                        setIsAddingContact(true);
-                                                    }}
-                                                    className="p-2 text-neutral-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
-                                                    title="Simpan ke Kontak"
-                                                >
-                                                    <UserPlus size={16} />
-                                                </button>
-                                            )}
-                                            
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); onDeleteSession(s.id); }}
-                                                className="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </>
-                    )}
-
-                    {/* --- TAB: CONTACTS (SAVED FRIENDS) --- */}
-                    {activeTab === 'CONTACTS' && (
-                        <>
-                            {/* Add Contact Trigger */}
-                            {!isAddingContact ? (
-                                <button 
-                                    onClick={() => setIsAddingContact(true)}
-                                    className="w-full py-3 rounded-xl border border-dashed border-white/20 text-neutral-400 hover:text-white hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest mb-4"
+                            return (
+                                <div 
+                                    key={s.id} 
+                                    className={`
+                                        relative p-4 rounded-2xl border transition-all group overflow-hidden cursor-pointer
+                                        ${isConnected 
+                                            ? 'bg-emerald-950/10 border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.1)]' 
+                                            : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
+                                        }
+                                    `}
+                                    onClick={() => !deleteConfirmId && onSelect(s)}
                                 >
-                                    <UserPlus size={14} /> TAMBAH KONTAK BARU
-                                </button>
-                            ) : (
-                                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 mb-4 animate-slide-up">
-                                    <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-3">TAMBAH TEMAN</h4>
-                                    <div className="space-y-2">
-                                        <input 
-                                            placeholder="Nama Teman (Alias)"
-                                            value={newContactName}
-                                            onChange={e => setNewContactName(e.target.value)}
-                                            className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 outline-none"
-                                        />
-                                        <input 
-                                            placeholder="ID IStok Mereka (Panjang)"
-                                            value={newContactId}
-                                            onChange={e => setNewContactId(e.target.value)}
-                                            className="w-full bg-black/50 border border-white/10 rounded-lg px-3 py-2 text-xs text-white font-mono focus:border-emerald-500 outline-none"
-                                        />
-                                        <div className="flex gap-2 pt-2">
-                                            <button onClick={() => setIsAddingContact(false)} className="flex-1 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[9px] font-bold text-neutral-400">BATAL</button>
-                                            <button onClick={handleAddContact} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-[9px] font-bold text-white shadow-lg">SIMPAN</button>
+                                    {/* Delete Confirmation Overlay */}
+                                    {deleteConfirmId === s.id ? (
+                                        <div className="absolute inset-0 bg-[#09090b]/95 flex flex-col items-center justify-center z-20 animate-fade-in text-center p-4 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+                                            <ShieldAlert size={24} className="text-red-500 mb-2" />
+                                            <p className="text-[9px] font-black text-white uppercase mb-3 tracking-widest">WIPE SECURE LINK?</p>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-1.5 rounded-lg bg-white/10 text-[9px] font-bold text-neutral-400 hover:text-white hover:bg-white/20 transition-all">CANCEL</button>
+                                                <button onClick={() => { onDelete(s.id); setDeleteConfirmId(null); }} className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-500 border border-red-500/50 text-[9px] font-bold hover:bg-red-600 hover:text-white transition-all">CONFIRM</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                </div>
-                            )}
+                                    ) : null}
 
-                            {filteredContacts.length === 0 && !isAddingContact ? (
-                                <div className="text-center py-12 opacity-30 flex flex-col items-center">
-                                    <Users size={32} className="mb-3 text-neutral-500" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">BELUM ADA TEMAN</p>
-                                </div>
-                            ) : (
-                                filteredContacts.map(c => (
-                                    <div 
-                                        key={c.id} 
-                                        className="p-3.5 rounded-2xl border border-white/5 bg-white/[0.02] hover:bg-white/5 transition-all flex items-center gap-3 group cursor-pointer"
-                                        onClick={() => onCallContact(c)}
-                                    >
-                                        <div className="w-10 h-10 rounded-full bg-indigo-600/20 text-indigo-400 border border-indigo-500/20 flex items-center justify-center shrink-0 font-bold text-sm">
-                                            {c.name.substring(0, 2).toUpperCase()}
+                                    {/* Header Row: Status & Actions */}
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-2">
+                                            {s.status === 'ONLINE' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></div>}
+                                            {s.status === 'BACKGROUND' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"></div>}
+                                            {s.status === 'OFFLINE' && <div className="w-1.5 h-1.5 rounded-full bg-neutral-700 border border-white/10"></div>}
+                                            
+                                            <span className={`text-[8px] font-black uppercase tracking-widest ${s.status === 'ONLINE' ? 'text-emerald-500' : s.status === 'BACKGROUND' ? 'text-amber-500' : 'text-neutral-600'}`}>
+                                                {s.status === 'ONLINE' ? 'ACTIVE UPLINK' : s.status}
+                                            </span>
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="text-xs font-bold text-white truncate">{c.name}</h4>
-                                            <p className="text-[9px] font-mono text-neutral-500 truncate">ID: {c.id.substring(0, 8)}...</p>
-                                        </div>
-                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); onCallContact(c); }}
-                                                className="p-2 bg-emerald-600/10 text-emerald-500 hover:bg-emerald-600 hover:text-white rounded-lg transition-all"
-                                                title="Chat Sekarang"
-                                            >
-                                                <ArrowRight size={14} />
-                                            </button>
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteContact(c.id); }}
-                                                className="p-2 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white rounded-lg transition-all"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                        
+                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={(e) => handleStartRename(s, e)} className="p-1.5 text-neutral-500 hover:text-white hover:bg-white/10 rounded transition-colors"><Edit3 size={12}/></button>
+                                            <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }} className="p-1.5 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"><Trash2 size={12}/></button>
                                         </div>
                                     </div>
-                                ))
-                            )}
-                        </>
+
+                                    {/* Name & ID */}
+                                    {editingId === s.id ? (
+                                        <div className="flex items-center gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
+                                            <input 
+                                                autoFocus
+                                                value={editName}
+                                                onChange={(e) => setEditName(e.target.value)}
+                                                onBlur={handleSaveRename}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleSaveRename()}
+                                                className="w-full bg-black border-b border-emerald-500 text-sm font-bold text-white outline-none py-1 uppercase tracking-tight"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="mb-4">
+                                            <h4 className={`text-sm font-black uppercase tracking-tight truncate ${isConnected ? 'text-emerald-400' : 'text-white'}`}>
+                                                {s.customName || s.name || 'UNKNOWN_ANOMALY'}
+                                            </h4>
+                                            <p className="text-[9px] font-mono text-neutral-500 truncate flex items-center gap-1 mt-0.5">
+                                                ID: <span className="select-all hover:text-white transition-colors">{s.id}</span>
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Secure Key Display (Read Only) */}
+                                    <div className="mb-4 p-2 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between group/pin" onClick={(e) => e.stopPropagation()}>
+                                        <div className="flex items-center gap-2 overflow-hidden">
+                                            <Lock size={10} className="text-neutral-600" />
+                                            <span className="text-[10px] font-mono text-neutral-400 tracking-widest truncate">
+                                                {isPinRevealed ? s.pin : '••••••'}
+                                            </span>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => togglePinVisibility(s.id, e)}
+                                            className="p-1 text-neutral-600 hover:text-white transition-colors"
+                                        >
+                                            {isPinRevealed ? <EyeOff size={10} /> : <Eye size={10} />}
+                                        </button>
+                                    </div>
+
+                                    {/* Footer */}
+                                    <div className="flex items-center justify-between pt-3 border-t border-white/5">
+                                        <span className="text-[8px] text-neutral-600 font-mono flex items-center gap-1">
+                                            <Clock size={10} /> {new Date(s.lastSeen).toLocaleDateString()}
+                                        </span>
+                                        
+                                        {isConnected ? (
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1">
+                                                <Wifi size={10} /> CONNECTED
+                                            </span>
+                                        ) : (
+                                            <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-neutral-500 group-hover:text-emerald-500 transition-colors">
+                                                CALL <ArrowRight size={10} />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
                     )}
                 </div>
             </div>

@@ -21,6 +21,9 @@ interface TeleponanProps {
     secretPin?: string;
 }
 
+// ... (VoiceProcessor and WaveformVisualizer classes remain exactly the same as provided in previous context) ...
+// Re-declaring for completeness of file replacement.
+
 class VoiceProcessor {
     ctx: AudioContext;
     micSource: MediaStreamAudioSourceNode | null = null;
@@ -206,14 +209,8 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     
     // Auto-answer if incoming call provided (triggered from IStokView)
     useEffect(() => {
-        // Critical: Handle incoming immediately but wait for user to accept via UI usually.
-        // If 'incomingCall' prop is present, it means the user clicked 'Answer' in IStokView (conceptually),
-        // or we are showing the ringing screen. 
-        // Logic: if RINGING, wait. If we auto-transitioned, do answer.
-        // Here we assume TeleponanView opens when the call starts or rings.
-        
-        // No auto-answer on mount to avoid mic permission race conditions.
-        // User must click answer button in this view if it's ringing.
+        if (incomingCall) handleIncomingCall(incomingCall, false); 
+        else if (initialTargetId && existingPeer) makeCall();
     }, []);
 
     // Timer
@@ -240,63 +237,44 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
             return stream;
         } catch (e) {
             console.error("Mic failed", e);
-            alert("Mic access denied. Please check permissions.");
+            alert("Mic access denied.");
             return null;
         }
     };
 
-    const handleIncomingCall = async (call: any) => {
+    const handleIncomingCall = async (call: any, autoAnswer = false) => {
         callRef.current = call;
-        
-        // 1. Get Local Stream FIRST
-        const inputStream = await startAudio();
-        
-        if (inputStream && engineRef.current) {
-            const processedStream = engineRef.current.getProcessedStream();
-            
-            // 2. Answer with stream
-            call.answer(processedStream);
-            
-            setState('SECURE_HANDSHAKE');
-            
-            call.on('stream', (remoteStream: MediaStream) => {
-                if (audioRef.current) {
-                    audioRef.current.srcObject = remoteStream;
-                    // Force play
-                    audioRef.current.play().catch(e => console.log("Autoplay blocked", e));
-                    setState('CONNECTED');
-                }
-            });
-
-            call.on('close', terminateCall);
-            call.on('error', (err: any) => {
-                console.error("Call Error", err);
-                terminateCall();
-            });
-        } else {
-            terminateCall(); // Failed to get mic
-        }
+        const answer = async () => {
+            const inputStream = await startAudio();
+            if (inputStream && engineRef.current) {
+                const processedStream = engineRef.current.getProcessedStream();
+                call.answer(processedStream);
+                call.on('stream', (remoteStream: MediaStream) => {
+                    if (audioRef.current) {
+                        audioRef.current.srcObject = remoteStream;
+                        audioRef.current.play().catch(() => {});
+                        setState('CONNECTED');
+                    }
+                });
+                call.on('close', terminateCall);
+                call.on('error', terminateCall);
+            }
+        };
+        if (autoAnswer) answer();
     };
 
     const answerCall = () => {
-        if (incomingCall) handleIncomingCall(incomingCall);
-        else if (callRef.current) handleIncomingCall(callRef.current);
+        if (callRef.current) handleIncomingCall(callRef.current, true);
     };
 
     const makeCall = async () => {
         if (!targetId || !existingPeer) return;
         setState('SIGNALING');
-        
         const inputStream = await startAudio();
-        
         if (inputStream && engineRef.current) {
             const processedStream = engineRef.current.getProcessedStream();
-            const call = existingPeer.call(targetId, processedStream, {
-                metadata: { type: 'VOICE_SECURE' }
-            });
-            
+            const call = existingPeer.call(targetId, processedStream);
             callRef.current = call;
-            
             call.on('stream', (remoteStream: MediaStream) => {
                  if (audioRef.current) {
                     audioRef.current.srcObject = remoteStream;
@@ -304,41 +282,18 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                     setState('CONNECTED');
                 }
             });
-            
             call.on('close', terminateCall);
-            call.on('error', (err: any) => {
-                console.error("Call error", err);
-                alert("Connection failed. Peer unavailable or offline.");
-                terminateCall();
-            });
-            
-            // Timeout if no answer
-            setTimeout(() => {
-                if (state === 'SIGNALING') {
-                    alert("No answer from peer.");
-                    terminateCall();
-                }
-            }, 30000);
-
+            call.on('error', terminateCall);
         } else {
             setState('IDLE');
         }
     };
 
-    // Auto-start outbound calls
-    useEffect(() => {
-        if (initialTargetId && !incomingCall) {
-            // Small delay to ensure rendering happens before permission prompt
-            setTimeout(() => makeCall(), 500);
-        }
-    }, []);
-
     const terminateCall = () => {
         setState('TERMINATED');
-        if (callRef.current) callRef.current.close();
-        if (engineRef.current) engineRef.current.cleanup();
-        if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
-        
+        callRef.current?.close();
+        engineRef.current?.cleanup();
+        streamRef.current?.getTracks().forEach(t => t.stop());
         setTimeout(onClose, 1000);
     };
 
@@ -411,7 +366,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                     </div>
                 )}
                 
-                {(state === 'SIGNALING' || state === 'SECURE_HANDSHAKE') && (
+                {state === 'SIGNALING' && (
                      <button onClick={terminateCall} className="px-8 py-3 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all">CANCEL</button>
                 )}
             </div>
