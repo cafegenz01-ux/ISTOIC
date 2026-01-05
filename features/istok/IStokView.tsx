@@ -6,10 +6,12 @@ import {
 import { TeleponanView } from '../teleponan/TeleponanView';
 import { activatePrivacyShield } from '../../utils/privacyShield';
 import { 
-    Send, Zap, Radio, Server,
-    Menu, Skull, PhoneCall, QrCode, ArrowRight,
-    X, Flame, ShieldAlert, Image as ImageIcon, Loader2, ArrowLeft, Grid, Mic,
-    Lock as LockIcon, History as HistoryIcon, Check, RefreshCw, MessageSquare
+    Send, Zap, Radio, ScanLine, Server,
+    Clock, Check, CheckCheck,
+    Mic, Square,
+    Menu, Skull, Activity,
+    PhoneCall, QrCode, User, Shield, AlertTriangle, History, ArrowRight,
+    X, RefreshCw, Lock, Flame, ShieldAlert, Image as ImageIcon, Loader2, ArrowLeft, Wifi
 } from 'lucide-react';
 import useLocalStorage from '../../hooks/useLocalStorage';
 import { SidebarIStokContact, IStokSession } from './components/SidebarIStokContact';
@@ -17,12 +19,8 @@ import { ShareConnection } from './components/ShareConnection';
 import { ConnectionNotification } from './components/ConnectionNotification';
 import { CallNotification } from './components/CallNotification';
 import { MessageNotification } from './components/MessageNotification';
-import { AudioMessagePlayer } from './components/vn';
+import { AudioMessagePlayer, getSupportedMimeType } from './components/vn';
 import { compressImage, ImageMessage } from './components/gambar';
-import { IStokAuth } from './components/IStokAuth';
-import { MediaDrawer } from './components/MediaDrawer';
-import { IStokWalkieTalkie } from './components/IStokWalkieTalkie';
-import { IStokInput } from './components/IStokInput';
 
 // --- CONSTANTS ---
 const CHUNK_SIZE = 16384; 
@@ -39,7 +37,6 @@ interface IStokProfile {
 interface Message {
     id: string;
     sender: 'ME' | 'THEM';
-    senderId?: string; // Explicit sender ID for notification logic
     type: 'TEXT' | 'IMAGE' | 'AUDIO' | 'FILE';
     content: string; 
     timestamp: number;
@@ -52,8 +49,8 @@ interface Message {
     ttl?: number; 
 }
 
-type AppMode = 'SELECT' | 'HOST' | 'JOIN' | 'CHAT';
-type ConnectionStage = 'IDLE' | 'LOCATING_PEER' | 'FETCHING_RELAYS' | 'VERIFYING_KEYS' | 'ESTABLISHING_TUNNEL' | 'AWAITING_APPROVAL' | 'SECURE' | 'RECONNECTING';
+type AppMode = 'SELECT' | 'HOST' | 'JOIN' | 'CHAT' | 'DIALING' | 'INCOMING_CALL';
+type ConnectionStage = 'IDLE' | 'FETCHING_ICE' | 'LOCATING_PEER' | 'VERIFYING_KEYS' | 'ESTABLISHING_TUNNEL' | 'AWAITING_APPROVAL' | 'SECURE' | 'RECONNECTING';
 
 // --- UTILS ---
 
@@ -68,16 +65,7 @@ const triggerHaptic = (ms: number | number[]) => {
 
 const notifySystem = (title: string, body: string) => {
     if ("Notification" in window && Notification.permission === "granted") {
-        try {
-            new Notification(title, { 
-                body, 
-                icon: '/vite.svg', 
-                tag: 'istok-msg', 
-                renotify: true 
-            } as any);
-        } catch (e) {
-            console.warn("Notification failed", e);
-        }
+        new Notification(title, { body });
     }
 };
 
@@ -87,7 +75,6 @@ const requestNotificationPermission = () => {
     }
 };
 
-// FIXED: AudioContext Auto-Close to prevent memory leaks / max context limit
 const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING' | 'ERROR' | 'BUZZ') => {
     const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return;
@@ -99,50 +86,72 @@ const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING' | 'ERROR
     gain.connect(ctx.destination);
     
     const now = ctx.currentTime;
-    let duration = 0.1;
-
     if (type === 'MSG_IN') {
         osc.frequency.setValueAtTime(800, now);
         osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
         gain.gain.setValueAtTime(0.1, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
     } else if (type === 'MSG_OUT') {
         osc.frequency.setValueAtTime(400, now);
         gain.gain.setValueAtTime(0.05, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.05);
-        duration = 0.05;
+        osc.start(now);
+        osc.stop(now + 0.05);
     } else if (type === 'CONNECT') {
         osc.frequency.setValueAtTime(600, now);
         osc.frequency.linearRampToValueAtTime(1200, now + 0.2);
         gain.gain.setValueAtTime(0.1, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.2);
-        duration = 0.2;
+        osc.start(now);
+        osc.stop(now + 0.2);
     } else if (type === 'CALL_RING') {
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(1000, now);
         osc.frequency.setValueAtTime(1000, now + 0.5);
         gain.gain.setValueAtTime(0.1, now);
         gain.gain.setValueAtTime(0, now + 0.5);
-        duration = 0.5;
+        osc.start(now);
+        osc.stop(now + 0.5);
     } else if (type === 'BUZZ') {
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(150, now);
         osc.frequency.linearRampToValueAtTime(50, now + 0.3);
         gain.gain.setValueAtTime(0.2, now);
         gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        duration = 0.3;
+        osc.start(now);
+        osc.stop(now + 0.3);
     }
-
-    osc.start(now);
-    osc.stop(now + duration);
-    
-    // GARBAGE COLLECTION
-    setTimeout(() => {
-        if (ctx.state !== 'closed') ctx.close();
-    }, duration * 1000 + 100);
 };
 
-// --- SUB-COMPONENTS (MEMOIZED) ---
+// --- ICE SERVER LOADER (CRITICAL FOR 4G/WIFI CROSSOVER) ---
+const getIceServers = async (): Promise<any[]> => {
+    // 1. Check for Metered API Key (Titanium Mode)
+    const meteredKey = process.env.VITE_METERED_API_KEY;
+    const meteredDomain = process.env.VITE_METERED_DOMAIN || 'istok.metered.live';
+
+    if (meteredKey) {
+        try {
+            const response = await fetch(`https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredKey}`);
+            const iceServers = await response.json();
+            console.log("[ISTOK_NET] Relay Servers (TURN) Acquired.");
+            return iceServers;
+        } catch (e) {
+            console.warn("[ISTOK_NET] Failed to fetch TURN servers, falling back to STUN.", e);
+        }
+    }
+
+    // 2. Robust STUN Fallback list
+    return [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+    ];
+};
+
+// --- SUB-COMPONENTS (MEMOIZED FOR PERFORMANCE) ---
 
 const BurnerTimer = ({ ttl, onBurn }: { ttl: number, onBurn: () => void }) => {
     const [timeLeft, setTimeLeft] = useState(ttl);
@@ -169,16 +178,9 @@ const MessageBubble = React.memo(({ msg, setViewImage, onBurn }: { msg: Message,
     const [burnStarted, setBurnStarted] = useState(msg.type !== 'IMAGE');
 
     return (
-        <div className={`flex ${msg.sender === 'ME' ? 'justify-end' : 'justify-start'} animate-fade-in mb-3`}>
+        <div className={`flex ${msg.sender === 'ME' ? 'justify-end' : 'justify-start'} animate-fade-in mb-4`}>
             <div className={`max-w-[85%] flex flex-col ${msg.sender === 'ME' ? 'items-end' : 'items-start'}`}>
-                <div className={`
-                    relative rounded-2xl text-sm 
-                    ${msg.sender === 'ME' 
-                        ? 'bg-emerald-600 text-white rounded-br-none shadow-md shadow-emerald-900/20' 
-                        : 'bg-[#1a1a1a] text-neutral-200 border border-white/5 rounded-bl-none shadow-sm'
-                    } 
-                    ${msg.type === 'TEXT' ? 'px-4 py-2.5' : 'p-1.5'}
-                `}>
+                <div className={`p-2 rounded-2xl text-sm border ${msg.sender === 'ME' ? 'bg-blue-600/20 border-blue-500/30 text-blue-100' : 'bg-[#1a1a1a] text-neutral-200 border-white/10'} ${msg.type === 'TEXT' ? 'px-4 py-3' : 'p-1'}`}>
                     {msg.type === 'IMAGE' ? 
                         <ImageMessage 
                             content={msg.content} 
@@ -186,15 +188,14 @@ const MessageBubble = React.memo(({ msg, setViewImage, onBurn }: { msg: Message,
                             onClick={() => setViewImage(msg.content)} 
                             onReveal={() => setBurnStarted(true)} 
                         /> : 
-                     msg.type === 'AUDIO' ? <AudioMessagePlayer src={msg.content} duration={msg.duration} isMasked={msg.isMasked} /> :
+                     msg.type === 'AUDIO' ? <AudioMessagePlayer src={msg.content} duration={msg.duration} /> :
                      msg.type === 'FILE' ? <FileMessageBubble fileName={msg.fileName} size={msg.size} content={msg.content} mimeType={msg.mimeType}/> : msg.content}
                     
                     {msg.ttl && burnStarted && <BurnerTimer ttl={msg.ttl} onBurn={() => onBurn(msg.id)} />}
                 </div>
-                <div className="flex items-center gap-1 mt-1 px-1 opacity-60">
-                    {msg.ttl && <ShieldAlert size={10} className="text-red-500" />}
-                    <span className="text-[9px] font-mono tracking-wide">{new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
-                    {msg.sender === 'ME' && <Check size={12} className={msg.status === 'READ' ? 'text-emerald-500' : 'text-neutral-500'} />}
+                <div className="flex items-center gap-1 mt-1 px-1">
+                    {msg.ttl && <ShieldAlert size={8} className="text-red-500" />}
+                    <span className="text-[9px] text-neutral-600">{new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
                 </div>
             </div>
         </div>
@@ -206,7 +207,7 @@ const SecureAttachmentModal = ({ image, onSend, onCancel }: { image: { base64: s
         <div className="w-full max-w-sm bg-[#09090b] border border-white/10 rounded-[32px] overflow-hidden shadow-2xl flex flex-col">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-white flex items-center gap-2">
-                    <LockIcon size={12} className="text-emerald-500"/> SECURE_ASSET_REVIEW
+                    <Lock size={12} className="text-emerald-500"/> SECURE_ASSET_REVIEW
                 </span>
                 <button onClick={onCancel}><X size={16} className="text-neutral-500 hover:text-white"/></button>
             </div>
@@ -218,6 +219,12 @@ const SecureAttachmentModal = ({ image, onSend, onCancel }: { image: { base64: s
                     <div className="absolute bottom-2 left-2 bg-black/80 px-2 py-1 rounded text-[8px] font-mono text-emerald-400 border border-emerald-900">
                         ENC_READY: {(image.size / 1024).toFixed(1)} KB
                     </div>
+                </div>
+                <div className="w-full bg-white/5 p-3 rounded-xl border border-white/5">
+                    <p className="text-[9px] text-neutral-400 font-mono leading-relaxed">
+                        <span className="text-emerald-500">PROTOCOL:</span> Image compressed (WebP/800px) & ready for AES-256 wrapping. 
+                        Target will require matching key to decrypt.
+                    </p>
                 </div>
             </div>
 
@@ -235,9 +242,10 @@ const ResumeSessionModal = ({ targetSession, onResume, onNew, onCancel }: { targ
     <div className="fixed inset-0 z-[10000] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
         <div className="w-full max-w-sm bg-[#09090b] border border-emerald-500/30 rounded-[32px] p-6 shadow-[0_0_50px_rgba(16,185,129,0.1)] relative ring-1 ring-emerald-500/20">
             <button onClick={onCancel} className="absolute top-4 right-4 text-neutral-500 hover:text-white bg-white/5 rounded-full p-1"><X size={18}/></button>
+            
             <div className="flex flex-col items-center gap-4 text-center mb-6 mt-2">
                 <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 border border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-                    <HistoryIcon size={32} />
+                    <History size={32} />
                 </div>
                 <div>
                     <h3 className="text-lg font-black text-white uppercase tracking-tight">KNOWN FREQUENCY</h3>
@@ -246,71 +254,115 @@ const ResumeSessionModal = ({ targetSession, onResume, onNew, onCancel }: { targ
                     </p>
                 </div>
             </div>
+
             <div className="space-y-3">
                 <button onClick={onResume} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg transition-all active:scale-95">
                     <Check size={16} strokeWidth={3} /> RESUME SESSION
                 </button>
+                <p className="text-[9px] text-center text-neutral-600 font-mono uppercase tracking-wider">Use previous keys & history</p>
+
                 <div className="h-[1px] bg-white/5 w-full my-1"></div>
+
                 <button onClick={onNew} className="w-full py-4 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-2xl font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-3 transition-all active:scale-95">
                     <RefreshCw size={14} /> NEW HANDSHAKE
                 </button>
+                <p className="text-[9px] text-center text-neutral-600 font-mono uppercase tracking-wider">Clear history (Forward Secrecy)</p>
             </div>
         </div>
     </div>
 );
 
+const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, recordingTime, isVoiceMasked, onToggleMask, onStartRecord, onStopRecord, onAttach, ttlMode, onToggleTtl }: any) => {
+    const [text, setText] = useState('');
+    return (
+        <div className="bg-[#09090b] border-t border-white/10 p-3 z-20 pb-[max(env(safe-area-inset-bottom),1rem)]">
+            <div className="flex items-center justify-between mb-2 px-1">
+                 <button onClick={onToggleTtl} className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider transition-all ${ttlMode > 0 ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-white/5 border-white/5 text-neutral-500'}`}>
+                    <Flame size={10} className={ttlMode > 0 ? 'fill-current' : ''} />
+                    {ttlMode > 0 ? `${ttlMode}s BURN` : 'PERSIST'}
+                 </button>
+                 <span className="text-[8px] font-mono text-neutral-600">E2EE_ACTIVE</span>
+            </div>
+
+            <div className="flex gap-2 items-end">
+                <button onClick={onAttach} className="p-3 bg-white/5 rounded-full text-neutral-400 hover:text-white transition-colors"><Zap size={20}/></button>
+                <div className="flex-1 bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-emerald-500/30 transition-colors">
+                    <input 
+                        value={text} 
+                        onChange={e=>{setText(e.target.value); onTyping();}} 
+                        onKeyDown={e=>e.key==='Enter'&&text.trim()&&(onSend(text),setText(''))} 
+                        placeholder={isRecording ? "Recording..." : "Message..."} 
+                        className="w-full bg-transparent outline-none text-white text-sm placeholder:text-neutral-600" 
+                        disabled={disabled||isRecording}
+                    />
+                </div>
+                {text.trim() ? (
+                    <button onClick={()=>{onSend(text);setText('');}} className="p-3 bg-blue-600 rounded-full text-white shadow-lg shadow-blue-900/20 active:scale-90 transition-transform"><Send size={20}/></button>
+                ) : (
+                    <button 
+                        onMouseDown={onStartRecord} 
+                        onMouseUp={onStopRecord} 
+                        onTouchStart={onStartRecord} 
+                        onTouchEnd={onStopRecord} 
+                        className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white shadow-[0_0_15px_red] animate-pulse' : 'bg-white/5 text-neutral-400'}`}
+                    >
+                        <Mic size={20}/>
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+});
+
 const ImageViewerModal = ({ src, onClose }: any) => (
     <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center p-4" onClick={onClose}><img src={src} className="max-w-full max-h-full rounded-lg border border-white/10 shadow-2xl"/></div>
 );
-
-// --- MAIN VIEW ---
 
 export const IStokView: React.FC = () => {
     const [mode, setMode] = useState<AppMode>('SELECT');
     const [stage, setStage] = useState<ConnectionStage>('IDLE');
     
-    // Feature States
-    const [showResumeModal, setShowResumeModal] = useState(false);
-    const [resumeTargetSession, setResumeTargetSession] = useState<IStokSession | null>(null);
-    const [showShare, setShowShare] = useState(false); 
-    const [showSidebar, setShowSidebar] = useState(false);
-    const [showMedia, setShowMedia] = useState(false);
-    const [showWalkie, setShowWalkie] = useState(false);
-    const [viewImage, setViewImage] = useState<string | null>(null);
-    const [showCall, setShowCall] = useState(false); 
-
-    // Data State
     const [myProfile, setMyProfile] = useLocalStorage<IStokProfile>('istok_profile_v1', {
         id: generateStableId(),
         username: generateAnomalyIdentity(),
         created: Date.now()
     });
+
     const [sessions, setSessions] = useLocalStorage<IStokSession[]>('istok_sessions', []);
     const [lastTargetId, setLastTargetId] = useLocalStorage<string>('istok_last_target_id', '');
-    
-    // Connection State
     const [targetPeerId, setTargetPeerId] = useState<string>('');
     const [accessPin, setAccessPin] = useState<string>('');
-    const [pendingImage, setPendingImage] = useState<{base64: string, size: number} | null>(null);
-    const [messages, setMessages] = useState<Message[]>([]);
     
-    // Transient State
+    const [showResumeModal, setShowResumeModal] = useState(false);
+    const [resumeTargetSession, setResumeTargetSession] = useState<IStokSession | null>(null);
+
+    const [ttlMode, setTtlMode] = useState<number>(10);
+
+    const [pendingImage, setPendingImage] = useState<{base64: string, size: number} | null>(null);
+    
+    const chunkBuffer = useRef<Record<string, { chunks: string[], count: number, total: number }>>({});
+
+    const pendingConnectionRef = useRef<{ id: string, pin: string } | null>(null);
+
+    const [showShare, setShowShare] = useState(false); 
+    const [showSidebar, setShowSidebar] = useState(false);
+    const [viewImage, setViewImage] = useState<string | null>(null);
+    const [showCall, setShowCall] = useState(false); 
+
     const [incomingConnectionRequest, setIncomingConnectionRequest] = useState<{ peerId: string, identity: string, conn: any } | null>(null);
     const [incomingCallObject, setIncomingCallObject] = useState<any>(null); 
     const [latestNotification, setLatestNotification] = useState<{ sender: string, text: string } | null>(null);
     const [errorMsg, setErrorMsg] = useState<string>('');
+    const [messages, setMessages] = useState<Message[]>([]);
     
     const [isRecording, setIsRecording] = useState(false);
     const [isSendingAudio, setIsSendingAudio] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
+    const [isVoiceMasked, setIsVoiceMasked] = useState(false);
     const [peerTyping, setPeerTyping] = useState(false);
     const [isPeerOnline, setIsPeerOnline] = useState(false);
-    const [ttlMode, setTtlMode] = useState<number>(10);
-    const [isVoiceMasked, setIsVoiceMasked] = useState(false);
+    const [isRelayActive, setIsRelayActive] = useState(false); // Indicates if using TURN
 
-    // Refs
-    const chunkBuffer = useRef<Record<string, { chunks: string[], count: number, total: number }>>({});
-    const pendingConnectionRef = useRef<{ id: string, pin: string } | null>(null);
     const peerRef = useRef<any>(null);
     const connRef = useRef<any>(null);
     const msgEndRef = useRef<HTMLDivElement>(null);
@@ -320,13 +372,7 @@ export const IStokView: React.FC = () => {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingIntervalRef = useRef<any>(null);
-
-    // ACTIVE CHAT TRACKING (Safe Refs for Focus Logic)
-    const activeChatIdRef = useRef<string | null>(null);
-
-    const isRelayActive = !!process.env.VITE_METERED_API_KEY;
-
-    // --- HANDLERS ---
+    const isMounted = useRef(true);
 
     const handleToggleTtl = () => {
         if (ttlMode === 10) setTtlMode(60);
@@ -413,8 +459,6 @@ export const IStokView: React.FC = () => {
         setIncomingConnectionRequest(null);
         setIncomingCallObject(null);
         
-        activeChatIdRef.current = null; // Reset focus tracker
-        
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
     };
 
@@ -433,9 +477,6 @@ export const IStokView: React.FC = () => {
             setStage('SECURE');
             setMode('CHAT');
             setIncomingConnectionRequest(null);
-            
-            // Set Active Chat
-            setTargetPeerId(peerId);
             
             const now = Date.now();
             setSessions(prev => {
@@ -462,10 +503,9 @@ export const IStokView: React.FC = () => {
         setIncomingConnectionRequest(null);
     };
 
-    // --- EFFECTS ---
-
     useEffect(() => {
         activatePrivacyShield();
+        isMounted.current = true;
         
         if (!myProfile.id) {
             setMyProfile({
@@ -479,7 +519,6 @@ export const IStokView: React.FC = () => {
             setTargetPeerId(lastTargetId);
         }
 
-        // Deep link handler
         try {
             const hash = window.location.hash;
             if (hash.includes('connect=')) {
@@ -493,87 +532,51 @@ export const IStokView: React.FC = () => {
                 }
             }
         } catch(e) {}
+        
+        return () => { isMounted.current = false; };
     }, []);
 
     useEffect(() => { 
         pinRef.current = accessPin;
     }, [accessPin]);
 
-    // Update ref whenever target changes for notification logic
-    useEffect(() => {
-        if (mode === 'CHAT') {
-            activeChatIdRef.current = targetPeerId;
-        } else {
-            activeChatIdRef.current = null;
-        }
-    }, [targetPeerId, mode]);
-
     useEffect(() => { msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length, peerTyping]);
 
-    // PEER INIT
+    // Initialize Peer (With robust TURN/STUN)
     useEffect(() => {
-        let mounted = true;
-        
         if (peerRef.current && !peerRef.current.destroyed) return;
 
         const initPeer = async () => {
             try {
-                const { Peer } = await import('peerjs');
-                if (!mounted) return;
+                // Fetch ICE servers dynamically
+                setStage('FETCHING_ICE');
+                const iceServers = await getIceServers();
                 
-                // 1. CONFIG: ICE SERVERS (Global Connectivity Fix)
-                let iceServers = [
-                    { urls: "stun:stun.l.google.com:19302" },
-                    { urls: "stun:stun1.l.google.com:19302" },
-                    { urls: "stun:stun2.l.google.com:19302" },
-                    { urls: "stun:stun3.l.google.com:19302" },
-                    { urls: "stun:stun4.l.google.com:19302" },
-                ];
-
-                // Add Metered TURN if configured (Solves Symmetric NAT / 4G issues)
-                const meteredKey = process.env.VITE_METERED_API_KEY;
-                const meteredDomain = process.env.VITE_METERED_DOMAIN || 'global.metered.live';
-                
-                if (meteredKey) {
-                    try {
-                        const response = await fetch(`https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredKey}`);
-                        const turnConfig = await response.json();
-                        if (Array.isArray(turnConfig)) {
-                            iceServers = [...iceServers, ...turnConfig];
-                        }
-                    } catch(e) {
-                        console.warn("Failed to fetch TURN credentials", e);
-                    }
+                // If we got credentials from metered/other, we assume relay is active
+                if (iceServers.some((s: any) => s.urls.includes('turn:'))) {
+                    setIsRelayActive(true);
                 }
 
-                // 2. CONFIG: SIGNALING SERVER (Dynamic)
-                const peerConfig: any = {
-                    debug: 1,
+                if (!isMounted.current) return;
+
+                const { Peer } = await import('peerjs');
+                
+                // IMPORTANT: ULTRA ROBUST ICE CONFIG FOR CROSS-NETWORK (4G/WIFI)
+                const options: any = { 
+                    debug: 1, 
+                    secure: true,
                     config: {
                         iceServers: iceServers,
                         sdpSemantics: 'unified-plan',
-                        iceCandidatePoolSize: 10,
+                        iceTransportPolicy: 'all' // Allows both relay and host
                     }
                 };
-
-                const signalHost = process.env.VITE_PEER_HOST;
-                const signalPort = process.env.VITE_PEER_PORT;
-                const signalPath = process.env.VITE_PEER_PATH;
-                const signalSecure = process.env.VITE_PEER_SECURE;
-
-                if (signalHost) {
-                    peerConfig.host = signalHost;
-                    peerConfig.port = signalPort ? parseInt(signalPort) : 443;
-                    peerConfig.path = signalPath || '/';
-                    peerConfig.secure = signalSecure === 'true';
-                } else {
-                    peerConfig.secure = true;
-                }
                 
-                const peer = new Peer(myProfile.id, peerConfig);
+                const peer = new Peer(myProfile.id, options);
 
                 peer.on('open', (id) => {
-                    if (mounted) {
+                    if (isMounted.current) {
+                        console.log(`[ISTOK_NET] Peer Open. ID: ${id}`);
                         setStage('IDLE');
                         if (pendingConnectionRef.current && !showResumeModal) {
                             setTimeout(() => {
@@ -598,21 +601,22 @@ export const IStokView: React.FC = () => {
                     if (incomingCallObject) return;
 
                     setShowShare(false);
+
                     console.log("Call received:", mediaConn.peer);
                     setIncomingCallObject(mediaConn);
                     playSound('CALL_RING');
-                    
-                    // Call Notification Logic: Only notify if not already handling call
-                    if (document.hidden) {
-                        notifySystem("SECURE CALL", "Encrypted voice channel requesting connection...");
-                    }
+                    notifySystem("INCOMING SECURE CALL", "Encrypted voice channel requesting connection...");
                 });
                 
                 peer.on('error', (err: any) => {
                     console.warn("Peer Error", err);
-                    if (err.type === 'unavailable-id') setErrorMsg('ID_COLLISION_RETRYING');
+                    if (err.type === 'unavailable-id') {
+                        setErrorMsg('ID_COLLISION_RETRYING');
+                    }
                     if (err.type === 'peer-unavailable') setErrorMsg('TARGET OFFLINE');
-                    if (err.type === 'fatal' || err.type === 'disconnected') setStage('RECONNECTING');
+                    if (err.type === 'fatal' || err.type === 'disconnected') {
+                        setStage('RECONNECTING');
+                    }
                 });
 
                 peerRef.current = peer;
@@ -623,10 +627,14 @@ export const IStokView: React.FC = () => {
             }
         };
         initPeer();
+        
         return () => {
-            mounted = false;
             clearInterval(heartbeatIntervalRef.current);
             clearInterval(recordingIntervalRef.current);
+            if (peerRef.current) {
+                peerRef.current.destroy();
+                peerRef.current = null;
+            }
         };
     }, [myProfile.id]);
 
@@ -634,7 +642,8 @@ export const IStokView: React.FC = () => {
         if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = setInterval(() => {
             if (connRef.current?.open) {
-                // Keep-alive ping logic can go here if needed
+                // Keep-alive ping
+                // connRef.current.send({ type: 'PING' });
             } else {
                 setIsPeerOnline(false);
             }
@@ -699,7 +708,7 @@ export const IStokView: React.FC = () => {
     };
 
     const handleData = async (data: any, incomingConn?: any) => {
-        // --- CHUNK HANDLER (CORRUPTION FIX) ---
+        // --- CHUNK HANDLER ---
         if (data.type === 'CHUNK') {
             const { transferId, idx, total, data: chunkData } = data;
             
@@ -708,16 +717,14 @@ export const IStokView: React.FC = () => {
             }
             const buffer = chunkBuffer.current[transferId];
             
-            // Only add if not already present
             if (!buffer.chunks[idx]) {
                 buffer.chunks[idx] = chunkData;
                 buffer.count++;
             }
             
             if (buffer.count === total) {
-                // Verify strict reassembly
                 const fullPayload = buffer.chunks.join('');
-                delete chunkBuffer.current[transferId]; // Clean up memory
+                delete chunkBuffer.current[transferId];
                 handleData({ type: 'MSG', payload: fullPayload });
             }
             return;
@@ -735,7 +742,6 @@ export const IStokView: React.FC = () => {
                         conn: incomingConn 
                     });
                     playSound('MSG_IN');
-                    notifySystem("SECURE UPLINK", `Connection request from ${req.identity}`);
                 }
             }
         } else if (data.type === 'RESP') {
@@ -745,11 +751,6 @@ export const IStokView: React.FC = () => {
                 if (res.type === 'CONNECTION_ACCEPT') {
                     setStage('SECURE');
                     setMode('CHAT');
-                    
-                    // IMPORTANT: Set active ID for notification logic
-                    activeChatIdRef.current = connRef.current.peer;
-                    setTargetPeerId(connRef.current.peer);
-
                     playSound('CONNECT');
                     startHeartbeat();
                     const now = Date.now();
@@ -771,22 +772,10 @@ export const IStokView: React.FC = () => {
             const json = await decryptData(data.payload, pinRef.current);
             if (json) {
                 const msg = JSON.parse(json);
-                const isFromActivePeer = activeChatIdRef.current === connRef.current?.peer;
-                const isWindowFocused = document.hasFocus();
-
-                // State Update
                 setMessages(prev => [...prev, { ...msg, sender: 'THEM', status: 'READ' }]);
-                
-                // NOTIFICATION LOGIC (NO DUPLICATES)
-                if (isWindowFocused && isFromActivePeer) {
-                    // We are looking at the chat -> Just play soft sound
-                    triggerHaptic(50);
-                } else {
-                    // Background or different chat -> Full Notification
-                    playSound('MSG_IN');
-                    const textPreview = msg.type === 'TEXT' ? msg.content : `Sent a ${msg.type}`;
-                    setLatestNotification({ sender: 'ANOMALY', text: textPreview });
-                    notifySystem(msg.senderId || 'ANOMALY', textPreview);
+                playSound('MSG_IN');
+                if (!document.hasFocus()) {
+                    setLatestNotification({ sender: 'ANOMALY', text: msg.type === 'TEXT' ? msg.content : `SENT ${msg.type}` });
                 }
             }
         } else if (data.type === 'SIGNAL') {
@@ -822,7 +811,7 @@ export const IStokView: React.FC = () => {
         const encrypted = await encryptData(JSON.stringify(rawPayload), pinRef.current);
         
         if (encrypted) {
-            // --- CHUNKING LOGIC (FIXED) ---
+            // --- CHUNKING LOGIC ---
             if (encrypted.length > CHUNK_SIZE) {
                  const transferId = crypto.randomUUID();
                  const total = Math.ceil(encrypted.length / CHUNK_SIZE);
@@ -837,8 +826,8 @@ export const IStokView: React.FC = () => {
                              total,
                              data: chunk
                          });
-                         // Safe delay for WebRTC buffers
-                         await new Promise(r => setTimeout(r, 10)); 
+                         // Micro-delay optimization
+                         await new Promise(r => setTimeout(r, 5));
                      }
                  })();
             } else {
@@ -866,17 +855,8 @@ export const IStokView: React.FC = () => {
 
     const startRecording = async () => {
         try {
-            // Supported MIME check
-            const mimeType = [
-                'audio/webm;codecs=opus',
-                'audio/webm',
-                'audio/mp4', // iOS priority
-                'audio/ogg;codecs=opus'
-            ].find(type => MediaRecorder.isTypeSupported(type)) || '';
-
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream, { mimeType });
-            
+            const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
 
@@ -885,24 +865,18 @@ export const IStokView: React.FC = () => {
             };
 
             mediaRecorder.onstop = () => {
-                // IMMEDIATE CLEANUP
-                stream.getTracks().forEach(track => track.stop());
-                
-                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
-                
-                // Validate size (avoid empty recordings)
-                if (audioBlob.size < 100) return; 
-
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     const base64Audio = reader.result as string;
                     const cleanBase64 = base64Audio.split(',')[1];
                     if (isSendingAudio) { 
-                        sendMessage('AUDIO', cleanBase64, { duration: recordingTime, isMasked: isVoiceMasked, mimeType });
+                        sendMessage('AUDIO', cleanBase64, { duration: recordingTime, isMasked: isVoiceMasked });
                     }
                     setIsSendingAudio(false);
                 };
-                reader.readAsDataURL(audioBlob);
+                
+                stream.getTracks().forEach(track => track.stop());
             };
 
             mediaRecorder.start();
@@ -912,7 +886,7 @@ export const IStokView: React.FC = () => {
             recordingIntervalRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
         } catch (e) {
             console.error("Mic error", e);
-            alert("Microphone access denied. Please check permissions.");
+            alert("Microphone access denied.");
         }
     };
 
@@ -963,21 +937,7 @@ export const IStokView: React.FC = () => {
     };
 
     const messageList = useMemo(() => (
-        // Added overscroll-none to prevent rubber banding on the message list
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scroll bg-noise pb-4 overscroll-none">
-            {/* Empty State for Chat */}
-            {messages.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center opacity-40 space-y-4">
-                    <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center border border-white/5">
-                        <MessageSquare size={32} strokeWidth={1} className="text-white"/>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-xs font-black uppercase tracking-widest text-white">SECURE CHANNEL ESTABLISHED</p>
-                        <p className="text-[10px] text-neutral-500 font-mono mt-1">Start transmission. E2EE Active.</p>
-                    </div>
-                </div>
-            )}
-            
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 custom-scroll bg-noise pb-4">
             {messages.map((msg) => (
                 <MessageBubble key={msg.id} msg={msg} setViewImage={setViewImage} onBurn={handleDeleteMessage} />
             ))}
@@ -985,11 +945,9 @@ export const IStokView: React.FC = () => {
         </div>
     ), [messages, handleDeleteMessage]);
 
-    // --- RENDER MODES ---
-
-    if (mode === 'SELECT' || mode === 'HOST' || mode === 'JOIN') {
+    if (mode === 'SELECT') {
         return (
-            <div className="h-[100dvh] w-full bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden font-sans">
+            <div className="h-[100dvh] w-full bg-[#050505] flex flex-col items-center justify-center px-6 space-y-12 relative overflow-hidden font-sans">
                  
                  {showResumeModal && resumeTargetSession && (
                      <ResumeSessionModal 
@@ -1035,82 +993,103 @@ export const IStokView: React.FC = () => {
                     <button onClick={() => setShowSidebar(true)} className="p-3 bg-white/5 rounded-full text-white"><Menu size={20} /></button>
                 </div>
 
-                {/* Back Button if not in SELECT mode */}
-                {mode !== 'SELECT' && (
-                    <button onClick={() => { setMode('SELECT'); setStage('IDLE'); }} className="absolute top-[calc(env(safe-area-inset-top)+1rem)] left-6 text-neutral-500 hover:text-white flex items-center gap-2 text-xs font-bold z-20">
-                        <ArrowLeft size={16} /> ABORT
+                <div className="text-center space-y-4 z-10">
+                     <h1 className="text-5xl font-black text-white italic tracking-tighter">IStoic <span className="text-emerald-500">P2P</span></h1>
+                     <p className="text-xs text-neutral-500 font-mono">SECURE RELAY PROTOCOL v0.50</p>
+                     {isRelayActive && <span className="text-[9px] text-purple-400 font-black uppercase tracking-widest block animate-pulse">TITANIUM RELAY ACTIVE (4G/WIFI BYPASS)</span>}
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 w-full max-w-sm z-10">
+                    <button 
+                        onClick={() => { 
+                            setAccessPin(Math.floor(100000 + Math.random()*900000).toString()); 
+                            setMode('HOST');
+                            requestNotificationPermission(); 
+                        }} 
+                        className="p-6 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4 hover:bg-white/10 transition-all"
+                    >
+                        <Server className="text-emerald-500" />
+                        <div className="text-left"><h3 className="font-bold text-white">HOST</h3><p className="text-[10px] text-neutral-500">Create Room</p></div>
                     </button>
-                )}
-
-                {/* UNIFIED AUTH VIEW */}
-                {mode === 'SELECT' ? (
-                    <IStokAuth 
-                        identity={myProfile.username}
-                        onRegenerateIdentity={() => setMyProfile({ ...myProfile, username: generateAnomalyIdentity() })}
-                        onHost={() => {
-                             // This is now mainly for QR display, handled inside component state
-                             const newPin = Math.floor(100000 + Math.random()*900000).toString();
-                             setAccessPin(newPin);
-                             setMode('HOST'); // Or keep in SELECT but show QR modal? Let's use HOST mode for QR display
-                             requestNotificationPermission();
-                        }}
-                        onJoin={(id, pin) => {
-                            setTargetPeerId(id);
-                            setAccessPin(pin);
+                    <button 
+                        onClick={() => {
                             setMode('JOIN');
-                            requestNotificationPermission();
-                            setTimeout(() => joinSession(id, pin), 200);
-                        }}
-                        errorMsg={errorMsg}
-                        onErrorClear={() => setErrorMsg('')}
-                        isRelayActive={isRelayActive}
-                    />
-                ) : mode === 'HOST' ? (
-                     <div className="w-full max-w-md bg-[#09090b] border border-white/10 p-8 rounded-[32px] text-center space-y-6">
-                         <div className="relative inline-block mb-4">
-                             <div className="absolute inset-0 bg-emerald-500 blur-[60px] opacity-20 animate-pulse"></div>
-                             <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto text-emerald-500 border border-emerald-500/20">
-                                <QrCode size={40} />
-                             </div>
-                         </div>
-                         <h2 className="text-xl font-black text-white animate-pulse">BROADCASTING_ID</h2>
-                         
-                         <div className="p-4 bg-black rounded-xl border border-white/5 space-y-4">
-                            <div>
-                                <p className="text-[9px] text-neutral-500 mb-1 font-bold tracking-wider">YOUR SECURE ID</p>
-                                <code className="text-white text-xs select-all block break-all font-mono bg-white/5 p-2 rounded">{myProfile.id}</code>
-                            </div>
-                            <div>
-                                <p className="text-[9px] text-neutral-500 mb-1 font-bold tracking-wider">ACCESS PIN</p>
-                                <p className="text-2xl font-black text-emerald-500 tracking-[0.5em] font-mono">{accessPin}</p>
-                            </div>
-                         </div>
-                         
-                         <button onClick={() => setShowShare(true)} className="w-full py-3 rounded-xl bg-white text-black flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all hover:scale-[1.02]">
-                            <QrCode size={14} /> GENERATE QR LINK
-                         </button>
-                     </div>
-                ) : (
-                     <div className="w-full max-w-md space-y-4">
-                         <div className="flex flex-col items-center justify-center gap-6 py-10">
-                             <div className="relative">
-                                 <div className="w-24 h-24 rounded-full border-4 border-blue-500/20 border-t-blue-500 animate-spin"></div>
-                                 <Radio className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-blue-500" size={32} />
-                             </div>
-                             <div className="text-center space-y-1">
-                                 <h2 className="text-xl font-black text-white uppercase tracking-tight animate-pulse">{stage.replace('_', ' ')}</h2>
-                                 <p className="text-xs text-neutral-500 font-mono">ESTABLISHING SECURE TUNNEL</p>
-                             </div>
-                         </div>
-                     </div>
-                )}
-
-                {showShare && <ShareConnection peerId={myProfile.id} pin={accessPin} onClose={() => setShowShare(false)} />}
+                            requestNotificationPermission(); 
+                        }} 
+                        className="p-6 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4 hover:bg-white/10 transition-all"
+                    >
+                        <ScanLine className="text-blue-500" />
+                        <div className="text-left"><h3 className="font-bold text-white">JOIN</h3><p className="text-[10px] text-neutral-500">Enter ID</p></div>
+                    </button>
+                </div>
             </div>
         );
     }
 
-    // CHAT MODE
+    if (mode === 'HOST' || mode === 'JOIN') {
+        return (
+            <div className="h-[100dvh] w-full bg-[#050505] flex flex-col items-center justify-center px-6 relative font-sans">
+                 {incomingConnectionRequest && <ConnectionNotification identity={incomingConnectionRequest.identity} peerId={incomingConnectionRequest.peerId} onAccept={acceptConnection} onDecline={declineConnection} />}
+                 {incomingCallObject && !showCall && <CallNotification identity={sessions.find(s => s.id === incomingCallObject.peer)?.name || 'UNKNOWN Caller'} onAnswer={() => setShowCall(true)} onDecline={() => { incomingCallObject.close(); setIncomingCallObject(null); }} />}
+
+                 {showShare && <ShareConnection peerId={myProfile.id} pin={accessPin} onClose={() => setShowShare(false)} />}
+
+                 <button onClick={() => { setMode('SELECT'); setStage('IDLE'); }} className="absolute top-[calc(env(safe-area-inset-top)+1rem)] left-6 text-neutral-500 hover:text-white flex items-center gap-2 text-xs font-bold z-20">ABORT</button>
+                 
+                 {mode === 'HOST' ? (
+                     <div className="w-full max-w-md bg-[#09090b] border border-white/10 p-8 rounded-[32px] text-center space-y-6">
+                         <div className="relative inline-block mb-4">
+                             <div className="absolute inset-0 bg-emerald-500 blur-[60px] opacity-20 animate-pulse"></div>
+                             <Server className="text-emerald-500 relative z-10 mx-auto" size={48} />
+                         </div>
+                         <h2 className="text-xl font-black text-white animate-pulse">BROADCASTING...</h2>
+                         <div className="p-4 bg-black rounded-xl border border-white/5">
+                            <p className="text-[9px] text-neutral-500 mb-1">YOUR ID</p>
+                            <code className="text-emerald-500 text-xs select-all block mb-4 break-all">{myProfile.id}</code>
+                            <p className="text-[9px] text-neutral-500 mb-1">PIN</p>
+                            <p className="text-xl font-black text-white tracking-[0.5em]">{accessPin}</p>
+                         </div>
+                         <button onClick={() => setShowShare(true)} className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"><QrCode size={14} /> SHARE CONNECTION</button>
+                     </div>
+                 ) : (
+                     <div className="w-full max-w-md space-y-4">
+                         {stage !== 'IDLE' ? (
+                             <div className="flex flex-col items-center justify-center gap-6 py-10">
+                                 <div className="relative">
+                                     <div className="w-24 h-24 rounded-full border-4 border-blue-500/20 border-t-blue-500 animate-spin"></div>
+                                     <Radio className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-blue-500" size={32} />
+                                 </div>
+                                 <div className="text-center space-y-1">
+                                     <h2 className="text-xl font-black text-white uppercase tracking-tight animate-pulse">{stage.replace('_', ' ')}</h2>
+                                     <p className="text-xs text-neutral-500 font-mono">ESTABLISHING SECURE TUNNEL</p>
+                                 </div>
+                             </div>
+                         ) : (
+                             <>
+                                <div className="text-center mb-6">
+                                    <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/20">
+                                        <ScanLine className="text-blue-500" size={32} />
+                                    </div>
+                                    <h2 className="text-lg font-black text-white uppercase">CONNECT TO PEER</h2>
+                                </div>
+                                <input 
+                                    value={targetPeerId} 
+                                    onChange={e=> { setTargetPeerId(e.target.value); }} 
+                                    placeholder="TARGET ID" 
+                                    className="w-full bg-[#09090b] p-4 rounded-xl text-white border border-white/10 outline-none text-center font-mono focus:border-blue-500 transition-colors"
+                                />
+                                <input value={accessPin} onChange={e=>setAccessPin(e.target.value)} placeholder="PIN" className="w-full bg-[#09090b] p-4 rounded-xl text-white border border-white/10 outline-none text-center font-mono tracking-widest focus:border-blue-500 transition-colors"/>
+                                <button onClick={() => joinSession()} className="w-full py-4 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-500 transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2">
+                                    <Zap size={16} fill="currentColor" /> INITIATE UPLINK
+                                </button>
+                             </>
+                         )}
+                     </div>
+                 )}
+            </div>
+        );
+    }
+
     return (
         <div className="h-[100dvh] w-full bg-[#050505] flex flex-col font-sans relative overflow-hidden">
              
@@ -1124,18 +1103,7 @@ export const IStokView: React.FC = () => {
                  />
              )}
              
-             {latestNotification && (
-                 <MessageNotification 
-                    senderName={latestNotification.sender} 
-                    messagePreview={latestNotification.text} 
-                    onDismiss={() => setLatestNotification(null)} 
-                    onClick={() => { 
-                        msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
-                        setLatestNotification(null); 
-                    }} 
-                />
-             )}
-             
+             {latestNotification && <MessageNotification senderName={latestNotification.sender} messagePreview={latestNotification.text} onDismiss={() => setLatestNotification(null)} onClick={() => { msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }); setLatestNotification(null); }} />}
              {incomingConnectionRequest && <ConnectionNotification identity={incomingConnectionRequest.identity} peerId={incomingConnectionRequest.peerId} onAccept={acceptConnection} onDecline={declineConnection} />}
              {incomingCallObject && !showCall && (
                  <CallNotification 
@@ -1162,21 +1130,6 @@ export const IStokView: React.FC = () => {
                     secretPin={accessPin || pinRef.current} 
                  />
              )}
-
-             <MediaDrawer 
-                isOpen={showMedia}
-                onClose={() => setShowMedia(false)}
-                messages={messages}
-                onViewImage={setViewImage}
-             />
-
-             {showWalkie && (
-                 <IStokWalkieTalkie 
-                    onClose={() => setShowWalkie(false)}
-                    onSendAudio={(base64, dur, size) => sendMessage('AUDIO', base64, { duration: dur, size })}
-                    latestMessage={messages[messages.length - 1]}
-                 />
-             )}
              
              <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center bg-[#09090b] z-10 pt-[calc(env(safe-area-inset-top)+1rem)]">
                  <div className="flex items-center gap-3">
@@ -1190,7 +1143,6 @@ export const IStokView: React.FC = () => {
                      </div>
                  </div>
                  <div className="flex gap-2">
-                     <button onClick={() => setShowMedia(true)} className="p-2 rounded-full hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"><Grid size={18}/></button>
                      <button onClick={() => sendSystemSignal('BUZZ')} className="p-2 rounded-full hover:bg-white/10 text-yellow-500 transition-colors" title="SEND BUZZ"><Zap size={18} fill="currentColor" /></button>
                      <button onClick={() => setShowCall(true)} className="p-2 rounded-full hover:bg-white/10 text-emerald-500 hover:text-white" title="SECURE CALL"><PhoneCall size={18}/></button>
                      <div className="w-[1px] h-6 bg-white/10 mx-1 self-center"></div>
@@ -1212,7 +1164,6 @@ export const IStokView: React.FC = () => {
                 onAttach={() => fileInputRef.current?.click()}
                 ttlMode={ttlMode}
                 onToggleTtl={handleToggleTtl}
-                onWalkieTalkie={() => setShowWalkie(true)}
              />
              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} accept="image/*,video/*,audio/*,.pdf,.doc,.txt" />
         </div>

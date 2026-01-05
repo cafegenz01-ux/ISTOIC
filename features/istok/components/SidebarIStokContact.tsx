@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { 
     X, User, Trash2, Edit3, Activity, Clock, 
     Smartphone, Monitor, Circle, Search, ArrowRight, ShieldAlert,
-    Wifi, WifiOff, Zap, Eye, EyeOff, Key, Lock, Fingerprint, Inbox
+    Wifi, WifiOff, Zap, Eye, EyeOff, Key, Lock, Fingerprint
 } from 'lucide-react';
 
 export interface IStokSession {
@@ -39,12 +39,15 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    
+    // State to toggle PIN visibility per session ID
     const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
 
     const filtered = useMemo(() => {
         return sessions.filter(s => 
             (s.customName || s.name || s.id).toLowerCase().includes(search.toLowerCase())
         ).sort((a, b) => {
+            // Sort by Status (Online first), then Last Seen
             if (a.status === 'ONLINE' && b.status !== 'ONLINE') return -1;
             if (a.status !== 'ONLINE' && b.status === 'ONLINE') return 1;
             return b.lastSeen - a.lastSeen;
@@ -69,6 +72,7 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
         setRevealedPins(prev => ({ ...prev, [id]: !prev[id] }));
     };
 
+    // Helper to get local profile ID (reads from localStorage for display)
     const getLocalId = () => {
         try {
             const profile = localStorage.getItem('istok_profile_v1');
@@ -78,11 +82,13 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
 
     return (
         <>
+            {/* Backdrop */}
             <div 
                 className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={onClose}
             />
 
+            {/* Sidebar */}
             <div className={`
                 fixed inset-y-0 right-0 w-full max-w-xs sm:max-w-sm 
                 bg-[#09090b] border-l border-white/10 z-[2010] shadow-[0_0_50px_rgba(0,0,0,0.5)]
@@ -90,11 +96,10 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                 flex flex-col font-sans
                 ${isOpen ? 'translate-x-0' : 'translate-x-full'}
             `}>
-                {/* Header with Safe Area */}
-                <div className="pt-safe px-6 pb-6 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/[0.02]">
+                <div className="p-6 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/[0.02]">
                     <div>
-                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
-                            <Zap size={14} className="text-emerald-500 fill-current" /> CONTACT_MATRIX
+                        <h2 className="text-sm font-black uppercase tracking-[0.2em] text-white flex items-center gap-2">
+                            <Zap size={16} className="text-emerald-500 fill-current" /> CONTACT_MATRIX
                         </h2>
                     </div>
                     <button onClick={onClose} className="p-2 text-neutral-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
@@ -102,20 +107,19 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                     </button>
                 </div>
 
-                {/* Local Identity */}
+                {/* USER IDENTITY CARD (MOVED HERE) */}
                 <div className="p-4 bg-[#050505] border-b border-white/5">
                     <div className="flex flex-col items-center gap-2 opacity-80 p-4 rounded-xl border border-white/5 bg-white/[0.02]">
                         <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5 text-emerald-500">
                             <Fingerprint size={12} />
-                            <span className="text-[9px] font-mono tracking-widest text-white">MY_IDENTITY</span>
+                            <span className="text-[10px] font-mono tracking-widest text-white">MY_IDENTITY</span>
                         </div>
                         <span className="text-[9px] text-neutral-500 font-mono select-all break-all text-center">
-                            {getLocalId()}
+                            ID: {getLocalId()}
                         </span>
                     </div>
                 </div>
 
-                {/* Search */}
                 <div className="p-4 border-b border-white/5 bg-[#050505]">
                     <div className="relative group">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 group-focus-within:text-emerald-500 transition-colors" size={14} />
@@ -123,18 +127,17 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                             type="text" 
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="SEARCH FREQUENCY..." 
+                            placeholder="SEARCH IDENTITIES..." 
                             className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-3 text-[10px] text-white focus:outline-none focus:border-emerald-500/50 uppercase tracking-wider placeholder:text-neutral-700 font-bold transition-all"
                         />
                     </div>
                 </div>
 
-                {/* List */}
-                <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-3 bg-[#050505] pb-safe">
+                <div className="flex-1 overflow-y-auto custom-scroll p-4 space-y-3 bg-[#050505]">
                     {filtered.length === 0 ? (
-                        <div className="text-center py-20 opacity-30 flex flex-col items-center gap-3">
-                            <Inbox size={32} className="text-neutral-500" strokeWidth={1} />
-                            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">NO_SIGNALS_LOGGED</p>
+                        <div className="text-center py-20 opacity-30 flex flex-col items-center">
+                            <Activity size={32} className="mb-3 text-neutral-500" />
+                            <p className="text-[10px] font-black uppercase tracking-widest text-neutral-500">NO_SIGNALS_FOUND</p>
                         </div>
                     ) : (
                         filtered.map(s => {
@@ -153,22 +156,27 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                                     `}
                                     onClick={() => !deleteConfirmId && onSelect(s)}
                                 >
-                                    {deleteConfirmId === s.id && (
+                                    {/* Delete Confirmation Overlay */}
+                                    {deleteConfirmId === s.id ? (
                                         <div className="absolute inset-0 bg-[#09090b]/95 flex flex-col items-center justify-center z-20 animate-fade-in text-center p-4 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
-                                            <ShieldAlert size={20} className="text-red-500 mb-2" />
+                                            <ShieldAlert size={24} className="text-red-500 mb-2" />
                                             <p className="text-[9px] font-black text-white uppercase mb-3 tracking-widest">WIPE SECURE LINK?</p>
                                             <div className="flex gap-2">
                                                 <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-1.5 rounded-lg bg-white/10 text-[9px] font-bold text-neutral-400 hover:text-white hover:bg-white/20 transition-all">CANCEL</button>
-                                                <button onClick={() => { onDelete(s.id); setDeleteConfirmId(null); }} className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-500 border border-red-500/50 text-[9px] font-bold hover:bg-red-600 hover:text-white transition-all">WIPE</button>
+                                                <button onClick={() => { onDelete(s.id); setDeleteConfirmId(null); }} className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-500 border border-red-500/50 text-[9px] font-bold hover:bg-red-600 hover:text-white transition-all">CONFIRM</button>
                                             </div>
                                         </div>
-                                    )}
+                                    ) : null}
 
+                                    {/* Header Row: Status & Actions */}
                                     <div className="flex justify-between items-start mb-2">
                                         <div className="flex items-center gap-2">
-                                            <div className={`w-1.5 h-1.5 rounded-full ${s.status === 'ONLINE' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse' : s.status === 'BACKGROUND' ? 'bg-amber-500' : 'bg-neutral-700'}`}></div>
-                                            <span className={`text-[8px] font-black uppercase tracking-widest ${s.status === 'ONLINE' ? 'text-emerald-500' : 'text-neutral-600'}`}>
-                                                {s.status === 'ONLINE' ? 'ACTIVE' : s.status}
+                                            {s.status === 'ONLINE' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></div>}
+                                            {s.status === 'BACKGROUND' && <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"></div>}
+                                            {s.status === 'OFFLINE' && <div className="w-1.5 h-1.5 rounded-full bg-neutral-700 border border-white/10"></div>}
+                                            
+                                            <span className={`text-[8px] font-black uppercase tracking-widest ${s.status === 'ONLINE' ? 'text-emerald-500' : s.status === 'BACKGROUND' ? 'text-amber-500' : 'text-neutral-600'}`}>
+                                                {s.status === 'ONLINE' ? 'ACTIVE UPLINK' : s.status}
                                             </span>
                                         </div>
                                         
@@ -178,6 +186,7 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                                         </div>
                                     </div>
 
+                                    {/* Name & ID */}
                                     {editingId === s.id ? (
                                         <div className="flex items-center gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
                                             <input 
@@ -190,17 +199,18 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                                             />
                                         </div>
                                     ) : (
-                                        <div className="mb-3">
+                                        <div className="mb-4">
                                             <h4 className={`text-sm font-black uppercase tracking-tight truncate ${isConnected ? 'text-emerald-400' : 'text-white'}`}>
-                                                {s.customName || s.name || 'UNKNOWN'}
+                                                {s.customName || s.name || 'UNKNOWN_ANOMALY'}
                                             </h4>
-                                            <p className="text-[9px] font-mono text-neutral-500 truncate flex items-center gap-1 mt-0.5 opacity-60">
-                                                ID: {s.id.slice(0,12)}...
+                                            <p className="text-[9px] font-mono text-neutral-500 truncate flex items-center gap-1 mt-0.5">
+                                                ID: <span className="select-all hover:text-white transition-colors">{s.id}</span>
                                             </p>
                                         </div>
                                     )}
 
-                                    <div className="mb-3 p-2 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between group/pin" onClick={(e) => e.stopPropagation()}>
+                                    {/* Secure Key Display (Read Only) */}
+                                    <div className="mb-4 p-2 bg-black/40 rounded-lg border border-white/5 flex items-center justify-between group/pin" onClick={(e) => e.stopPropagation()}>
                                         <div className="flex items-center gap-2 overflow-hidden">
                                             <Lock size={10} className="text-neutral-600" />
                                             <span className="text-[10px] font-mono text-neutral-400 tracking-widest truncate">
@@ -215,6 +225,7 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                                         </button>
                                     </div>
 
+                                    {/* Footer */}
                                     <div className="flex items-center justify-between pt-3 border-t border-white/5">
                                         <span className="text-[8px] text-neutral-600 font-mono flex items-center gap-1">
                                             <Clock size={10} /> {new Date(s.lastSeen).toLocaleDateString()}
@@ -222,11 +233,11 @@ export const SidebarIStokContact: React.FC<SidebarIStokContactProps> = ({
                                         
                                         {isConnected ? (
                                             <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500 flex items-center gap-1">
-                                                <Wifi size={10} /> LINKED
+                                                <Wifi size={10} /> CONNECTED
                                             </span>
                                         ) : (
                                             <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-neutral-500 group-hover:text-emerald-500 transition-colors">
-                                                CONNECT <ArrowRight size={10} />
+                                                CALL <ArrowRight size={10} />
                                             </div>
                                         )}
                                     </div>

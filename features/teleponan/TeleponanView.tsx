@@ -292,7 +292,10 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                 call.on('stream', (remoteStream: MediaStream) => {
                     if (audioRef.current) {
                         audioRef.current.srcObject = remoteStream;
-                        audioRef.current.play();
+                        // iOS Fix: Must call play() inside user interaction context usually, 
+                        // but since we are inside a button click handler context (via answer call), this might work.
+                        // If auto-answer, it might be blocked on iOS if no prior interaction.
+                        audioRef.current.play().catch(e => console.warn("Auto-play blocked:", e));
                         setState('CONNECTED');
                     }
                 });
@@ -324,7 +327,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
             call.on('stream', (remoteStream: MediaStream) => {
                  if (audioRef.current) {
                     audioRef.current.srcObject = remoteStream;
-                    audioRef.current.play();
+                    audioRef.current.play().catch(e => console.warn("Auto-play blocked:", e));
                     setState('CONNECTED');
                 }
             });
@@ -364,7 +367,8 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
 
     return (
         <div className="fixed inset-0 z-[10000] bg-[#050505] flex flex-col font-mono text-emerald-500 animate-fade-in">
-            <audio ref={audioRef} className="hidden" />
+            {/* Hidden audio element with playsInline for iOS */}
+            <audio ref={audioRef} className="hidden" playsInline autoPlay />
             
             {/* Background FX */}
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_#000_100%)] pointer-events-none"></div>

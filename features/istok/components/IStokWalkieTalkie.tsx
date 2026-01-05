@@ -11,9 +11,6 @@ interface IStokWalkieTalkieProps {
 
 // --- SOUND FX SYNTHESIZER ---
 const playTone = (ctx: AudioContext, type: 'ROGER_BEEP' | 'RX_START' | 'TX_START') => {
-    // Resume context if suspended (browser policy)
-    if (ctx.state === 'suspended') ctx.resume();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -68,6 +65,18 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
     useEffect(() => {
         const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
         audioCtxRef.current = new AudioContext();
+        
+        // iOS Fix: Resume context on user interaction if needed
+        const unlock = () => {
+            if (audioCtxRef.current?.state === 'suspended') {
+                audioCtxRef.current.resume();
+            }
+            window.removeEventListener('touchstart', unlock);
+            window.removeEventListener('click', unlock);
+        };
+        window.addEventListener('touchstart', unlock);
+        window.addEventListener('click', unlock);
+
         return () => { audioCtxRef.current?.close(); };
     }, []);
 
@@ -92,21 +101,16 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
 
     const playIncomingAudio = async (base64: string) => {
         if (!audioCtxRef.current) return;
-        
-        // Auto-resume audio context context (Mobile Safari requirement)
-        if (audioCtxRef.current.state === 'suspended') await audioCtxRef.current.resume();
-        
         setStatus('RX');
         playTone(audioCtxRef.current, 'RX_START');
 
         try {
-            // Use fetch for base64 decoding (async, non-blocking)
-            // Handle raw base64 or data uri
-            const src = base64.startsWith('data:') ? base64 : `data:audio/webm;base64,${base64}`;
-            const res = await fetch(src);
-            const arrayBuffer = await res.arrayBuffer();
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
 
-            const audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
+            const audioBuffer = await audioCtxRef.current.decodeAudioData(bytes.buffer);
             const source = audioCtxRef.current.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(audioCtxRef.current.destination);
@@ -135,8 +139,14 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             playTone(audioCtxRef.current, 'TX_START');
             
-            // Ultra-low bitrate for PTT efficiency
-            const options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 12000 };
+            // Ultra-low bitrate for PTT efficiency over 4G
+            // Fallback for browsers that don't support configuring bitrate
+            let options = {};
+            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 12000 };
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4', audioBitsPerSecond: 16000 }; // iOS
+            }
             
             mediaRecorderRef.current = new MediaRecorder(stream, options);
             audioChunksRef.current = [];
@@ -146,7 +156,7 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
             };
 
             mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
                 const reader = new FileReader();
                 reader.onloadend = () => {
                     const base64 = (reader.result as string).split(',')[1]; // Strip header
@@ -196,8 +206,8 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
             {/* GRID BACKGROUND */}
             <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.05)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none"></div>
             
-            {/* HEADER with Safe Area */}
-            <div className="relative z-10 pt-safe px-6 pb-4 flex justify-between items-center border-b border-emerald-900/50 bg-black/80 backdrop-blur-md">
+            {/* HEADER */}
+            <div className="relative z-10 px-6 py-4 flex justify-between items-center border-b border-emerald-900/50 bg-black/80 backdrop-blur-md">
                 <div className="flex items-center gap-3">
                     <div className={`w-3 h-3 rounded-full ${status !== 'IDLE' ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
                     <span className="text-[10px] font-black uppercase tracking-[0.3em]">WALKIE_TALKIE</span>
@@ -208,12 +218,12 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
             </div>
 
             {/* MAIN DISPLAY */}
-            <div className="flex-1 relative flex flex-col items-center justify-center p-6 gap-8 pb-safe">
+            <div className="flex-1 relative flex flex-col items-center justify-center p-6 gap-8">
                 
-                {/* STATUS VISUALIZER - Responsive Size */}
+                {/* STATUS VISUALIZER */}
                 <div className="relative">
                     <div className={`
-                        w-48 h-48 md:w-64 md:h-64 rounded-full border-4 flex items-center justify-center transition-all duration-300
+                        w-64 h-64 rounded-full border-4 flex items-center justify-center transition-all duration-300
                         ${status === 'TX' ? 'border-red-500 bg-red-900/20 shadow-[0_0_50px_rgba(239,68,68,0.4)]' : 
                           status === 'RX' ? 'border-emerald-500 bg-emerald-900/20 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : 
                           'border-neutral-800 bg-black'}
@@ -221,21 +231,21 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
                         {status === 'TX' && (
                             <div className="flex flex-col items-center animate-pulse">
                                 <Mic size={48} className="text-red-500 mb-2" />
-                                <span className="text-xl md:text-2xl font-black text-red-500 tracking-widest">TRANSMITTING</span>
+                                <span className="text-2xl font-black text-red-500 tracking-widest">TRANSMITTING</span>
                                 <span className="text-sm text-red-400 font-mono mt-2">{duration}s</span>
                             </div>
                         )}
                         {status === 'RX' && (
                             <div className="flex flex-col items-center animate-bounce">
                                 <Volume2 size={48} className="text-emerald-500 mb-2" />
-                                <span className="text-xl md:text-2xl font-black text-emerald-500 tracking-widest">RECEIVING</span>
+                                <span className="text-2xl font-black text-emerald-500 tracking-widest">RECEIVING</span>
                                 <span className="text-[10px] text-emerald-400 font-mono mt-2">INCOMING SIGNAL...</span>
                             </div>
                         )}
                         {status === 'IDLE' && (
                             <div className="flex flex-col items-center opacity-30">
                                 <Radio size={48} className="text-neutral-500 mb-2" />
-                                <span className="text-lg md:text-xl font-black text-neutral-500 tracking-widest">STANDBY</span>
+                                <span className="text-xl font-black text-neutral-500 tracking-widest">STANDBY</span>
                                 {audioQueue.length > 0 && <span className="text-[10px] text-amber-500 mt-2">{audioQueue.length} MSGS QUEUED</span>}
                             </div>
                         )}
@@ -257,11 +267,15 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
                         ${status === 'RX' ? 'opacity-50 cursor-not-allowed' : ''}
                     `}
                     onClick={toggleTx}
+                    onTouchStart={(e) => { e.preventDefault(); startTx(); }}
+                    onTouchEnd={(e) => { e.preventDefault(); stopTx(); }}
+                    onMouseDown={startTx}
+                    onMouseUp={stopTx}
                     disabled={status === 'RX'}
                 >
                     <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
                     <span className="relative z-10 flex items-center justify-center gap-3">
-                        {status === 'TX' ? 'TAP TO OVER' : 'TAP TO TALK'}
+                        {status === 'TX' ? 'TRANSMITTING...' : 'HOLD TO TALK'}
                         <Activity size={24} className={status === 'TX' ? 'animate-pulse' : ''} />
                     </span>
                 </button>

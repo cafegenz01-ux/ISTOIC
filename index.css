@@ -48,36 +48,23 @@
 
 html {
     height: 100%;
-    width: 100%;
-    /* PWA CRITICAL: Prevent elastic scrolling on iOS */
+    /* Prevent elastic scrolling on iOS */
     overflow: hidden; 
     background-color: var(--bg-main);
-    
-    /* Disable touch highlight on tap */
-    -webkit-tap-highlight-color: transparent;
 }
 
 body {
   margin: 0;
   padding: 0;
-  /* Use 100dvh for proper mobile browser height handling (keyboard aware) */
+  /* Use 100dvh for proper mobile browser height handling */
   height: 100dvh; 
   width: 100vw;
   overflow: hidden;
-  
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  
-  /* PWA CRITICAL: Prevent Pull-to-Refresh & Bounce */
+  -webkit-tap-highlight-color: transparent;
+  /* Prevent pull-to-refresh */
   overscroll-behavior-y: none; 
   touch-action: manipulation;
-  
-  /* PWA CRITICAL: Disable Text Selection on UI (Enable specifically on content) */
-  -webkit-user-select: none;
-  user-select: none;
-  
-  /* PWA CRITICAL: Disable Context Menu on Long Press (iOS) */
-  -webkit-touch-callout: none;
   
   background-color: var(--bg-main);
   color: var(--text-main);
@@ -90,13 +77,6 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-/* RE-ENABLE SELECTION FOR CONTENT AREAS */
-input, textarea, [contenteditable="true"], .prose, .select-all, .message-content, code, pre {
-  -webkit-user-select: text;
-  user-select: text;
-  cursor: text;
 }
 
 /* --- SAFE AREA UTILITIES (iOS XR+) --- */
@@ -134,26 +114,16 @@ input, textarea, [contenteditable="true"], .prose, .select-all, .message-content
 }
 
 /* SCROLLBAR REFINEMENT */
-/* Hide scrollbar for PWA aesthetic but allow scrolling */
-.custom-scroll::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 4px;
   height: 4px;
 }
-.custom-scroll::-webkit-scrollbar-track { background: transparent; }
-.custom-scroll::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
   background: rgba(128, 128, 128, 0.2);
   border-radius: 10px;
 }
-.dark .custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
-
-/* Hide scrollbar completely in some areas */
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
-}
-.no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-}
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
 
 /* IOS INPUT ZOOM FIX */
 @media screen and (max-width: 768px) {

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Loader2, Ghost, AlertCircle, Lock } from 'lucide-react';
 
 // --- UTILS: AUDIO RECORDING ---
@@ -18,17 +18,17 @@ export const getSupportedMimeType = () => {
 };
 
 // --- COMPONENT: 60FPS AUDIO PLAYER (ROBUST VER.) ---
-export const AudioMessagePlayer = React.memo(({ src, duration, isMasked }: { src: string, duration?: number, isMasked?: boolean }) => {
+export const AudioMessagePlayer = React.memo(({ src, duration, isMasked, mimeType }: { src: string, duration?: number, isMasked?: boolean, mimeType?: string }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(false);
-    const [progress, setProgress] = useState(0);
     
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const progressRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef<number | null>(null);
     const blobUrlRef = useRef<string | null>(null);
 
-    // Strict Cleanup
+    // Cleanup memory strict
     useEffect(() => {
         return () => {
             if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -49,13 +49,10 @@ export const AudioMessagePlayer = React.memo(({ src, duration, isMasked }: { src
             try {
                 let url = src;
                 
-                // 1. Handle Base64 Data URI efficiently (Prevent Main Thread Freeze)
-                if (!src.startsWith('http') && !src.startsWith('blob:')) {
-                    // Check if it's raw base64 without prefix
-                    const base64Data = src.startsWith('data:') ? src : `data:audio/webm;base64,${src}`;
-                    
-                    // Async fetch to blob is non-blocking compared to atob()
-                    const res = await fetch(base64Data);
+                // 1. Handle Base64 Data URI efficiently
+                if (src.startsWith('data:')) {
+                    // Convert Data URI to Blob for better browser compatibility
+                    const res = await fetch(src);
                     const blob = await res.blob();
                     url = URL.createObjectURL(blob);
                     blobUrlRef.current = url;
@@ -67,12 +64,11 @@ export const AudioMessagePlayer = React.memo(({ src, duration, isMasked }: { src
                 
                 // Critical for iOS/Safari playback
                 audio.preload = 'auto'; 
-                (audio as any).playsInline = true;
 
                 // Event Listeners
                 audio.onended = () => {
                     setIsPlaying(false);
-                    setProgress(0);
+                    if (progressRef.current) progressRef.current.style.width = '0%';
                     if (rafRef.current) cancelAnimationFrame(rafRef.current);
                 };
                 
@@ -107,15 +103,15 @@ export const AudioMessagePlayer = React.memo(({ src, duration, isMasked }: { src
         }
     };
 
-    // 60FPS Animation Loop (Bypasses React Render Cycle for CSS var update, but sets state for re-render if needed)
+    // 60FPS Animation Loop (Bypasses React Render Cycle)
     useEffect(() => {
         if (isPlaying) {
             const animate = () => {
-                if (audioRef.current) {
+                if (audioRef.current && progressRef.current) {
                     const currentTime = audioRef.current.currentTime;
-                    const dur = audioRef.current.duration || 1; // Prevent div by zero
-                    const pct = (currentTime / dur) * 100;
-                    setProgress(pct);
+                    const duration = audioRef.current.duration || 1; // Prevent div by zero
+                    const pct = (currentTime / duration) * 100;
+                    progressRef.current.style.width = `${pct}%`;
                 }
                 rafRef.current = requestAnimationFrame(animate);
             };
@@ -149,8 +145,8 @@ export const AudioMessagePlayer = React.memo(({ src, duration, isMasked }: { src
                 {/* Visualizer Track */}
                 <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden relative">
                     <div 
+                        ref={progressRef}
                         className={`h-full w-0 transition-[width] duration-75 ease-linear ${error ? 'bg-red-500' : (isMasked ? 'bg-purple-400' : 'bg-emerald-500')}`} 
-                        style={{ width: `${progress}%` }}
                     ></div>
                 </div>
                 

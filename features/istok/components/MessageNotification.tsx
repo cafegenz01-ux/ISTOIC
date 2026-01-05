@@ -12,7 +12,6 @@ interface MessageNotificationProps {
 export const MessageNotification: React.FC<MessageNotificationProps> = ({ senderName, messagePreview, onDismiss, onClick }) => {
     const [progress, setProgress] = useState(100);
     const DURATION = 5000;
-    const [isExiting, setIsExiting] = useState(false);
 
     useEffect(() => {
         if (navigator.vibrate) navigator.vibrate(50);
@@ -25,28 +24,19 @@ export const MessageNotification: React.FC<MessageNotificationProps> = ({ sender
 
             if (remaining === 0) {
                 clearInterval(timer);
-                triggerDismiss();
+                onDismiss();
             }
         }, 16);
 
         return () => clearInterval(timer);
-    }, []);
-
-    const triggerDismiss = () => {
-        setIsExiting(true);
-        setTimeout(onDismiss, 300); // Wait for exit animation
-    };
+    }, [onDismiss]);
 
     return (
         <div 
-            className={`
-                fixed top-[calc(env(safe-area-inset-top)+12px)] left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-sm z-[8000] cursor-pointer
-                transition-all duration-300 ease-in-out transform
-                ${isExiting ? '-translate-y-20 opacity-0' : 'translate-y-0 opacity-100'}
-            `}
+            className="fixed top-[calc(env(safe-area-inset-top)+12px)] left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-sm z-[8000] animate-slide-down cursor-pointer"
             onClick={onClick}
         >
-            <div className="relative overflow-hidden bg-[#09090b]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] ring-1 ring-white/5 animate-slide-down">
+            <div className="relative overflow-hidden bg-[#09090b]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] ring-1 ring-white/5">
                 
                 {/* Content Container */}
                 <div className="p-3.5 flex items-start gap-3.5">
@@ -73,7 +63,7 @@ export const MessageNotification: React.FC<MessageNotificationProps> = ({ sender
 
                     {/* Dismiss Button - Larger touch target */}
                     <button 
-                        onClick={(e) => { e.stopPropagation(); triggerDismiss(); }} 
+                        onClick={(e) => { e.stopPropagation(); onDismiss(); }} 
                         className="absolute top-0 right-0 p-3 text-neutral-500 hover:text-white active:scale-90 transition-transform"
                     >
                         <X size={14} />
@@ -83,7 +73,7 @@ export const MessageNotification: React.FC<MessageNotificationProps> = ({ sender
                 {/* Progress Bar */}
                 <div className="absolute bottom-0 left-0 h-[2px] bg-emerald-900/30 w-full">
                     <div 
-                        className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981] transition-all duration-75 ease-linear" 
+                        className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981]" 
                         style={{ width: `${progress}%` }} 
                     />
                 </div>

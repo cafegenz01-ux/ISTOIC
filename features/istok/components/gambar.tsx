@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Maximize2, AlertCircle, Loader2, Download, Image as ImageIcon, Lock, Eye, EyeOff } from 'lucide-react';
 
 // --- UTILS: HIGH-PERFORMANCE IMAGE COMPRESSION ---
@@ -73,7 +73,7 @@ export const compressImage = (file: File): Promise<{base64: string, size: number
 // --- COMPONENT: ROBUST IMAGE BUBBLE ---
 
 interface ImageMessageProps {
-    content: string; // Base64 Data URL (might be raw or prefixed)
+    content: string; // Base64 Data URL
     size?: number;
     onClick: () => void;
     onReveal?: () => void; // Trigger for Burn-on-View
@@ -82,15 +82,10 @@ interface ImageMessageProps {
 export const ImageMessage = React.memo(({ content, size, onClick, onReveal }: ImageMessageProps) => {
     const [status, setStatus] = useState<'LOADING' | 'LOADED' | 'ERROR'>('LOADING');
     const [isRevealed, setIsRevealed] = useState(false);
-    const [safeSrc, setSafeSrc] = useState<string>('');
 
     useEffect(() => {
-        // Ensure prefix exists
-        const src = content.startsWith('data:') ? content : `data:image/webp;base64,${content}`;
-        setSafeSrc(src);
-
         const img = new Image();
-        img.src = src;
+        img.src = content;
         img.onload = () => setStatus('LOADED');
         img.onerror = () => setStatus('ERROR');
     }, [content]);
@@ -99,16 +94,6 @@ export const ImageMessage = React.memo(({ content, size, onClick, onReveal }: Im
         e.stopPropagation();
         setIsRevealed(true);
         if (onReveal) onReveal(); // Trigger burner only when revealed
-    };
-    
-    const handleDownload = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (safeSrc) {
-            const a = document.createElement('a');
-            a.href = safeSrc;
-            a.download = `secure_image_${Date.now()}.webp`;
-            a.click();
-        }
     };
 
     return (
@@ -140,7 +125,7 @@ export const ImageMessage = React.memo(({ content, size, onClick, onReveal }: Im
             {/* 3. SUCCESS STATE */}
             <div className="relative">
                 <img 
-                    src={safeSrc} 
+                    src={content} 
                     alt="Secure Transmission" 
                     className={`
                         w-full h-auto max-h-[300px] object-cover transition-all duration-500 block
@@ -171,13 +156,8 @@ export const ImageMessage = React.memo(({ content, size, onClick, onReveal }: Im
                         </div>
                         {size && <span className="text-[8px] font-mono text-neutral-400">{(size/1024).toFixed(1)}KB</span>}
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={handleDownload} className="p-1.5 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-colors" title="Save Image">
-                            <Download size={12} />
-                        </button>
-                        <div className="p-1.5 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-colors">
-                            <Maximize2 size={12} />
-                        </div>
+                    <div className="p-1.5 bg-white/10 rounded-lg text-white hover:bg-white/20 transition-colors">
+                        <Maximize2 size={12} />
                     </div>
                 </div>
             )}
