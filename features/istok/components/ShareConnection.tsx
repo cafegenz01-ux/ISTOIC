@@ -14,9 +14,9 @@ export const ShareConnection: React.FC<ShareConnectionProps> = ({ peerId, pin, o
     const [shareUrl, setShareUrl] = useState('');
 
     useEffect(() => {
-        const baseUrl = window.location.href.split('#')[0]; // Ensure base URL is clean
-        // Standard Hash routing for PWA safety, include base path
-        const url = `${baseUrl}#connect=${peerId}&key=${pin}`;
+        // Use query params '?' instead of hash '#' for better initial routing compatibility on static hosts
+        const baseUrl = window.location.origin;
+        const url = `${baseUrl}/?connect=${peerId}&key=${pin}`;
         setShareUrl(url);
     }, [peerId, pin]);
 
@@ -35,7 +35,7 @@ export const ShareConnection: React.FC<ShareConnectionProps> = ({ peerId, pin, o
             try {
                 await navigator.share({
                     title: 'IStok Secure Link',
-                    text: `Connect to Secure ID: ${peerId}\nPIN: ${pin}`,
+                    text: `Secure P2P Request.\nID: ${peerId}\nPIN: ${pin}`,
                     url: shareUrl,
                 });
             } catch (err) {

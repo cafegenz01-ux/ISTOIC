@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
     Server, ScanLine, RefreshCw, 
     Fingerprint, Activity, ArrowRight, ShieldCheck,
-    QrCode, Clipboard, Camera, X, Check, Loader2, Lock
+    QrCode, Clipboard, Camera, X, Check, Loader2, Lock, Upload
 } from 'lucide-react';
 
 interface IStokAuthProps {
@@ -15,7 +15,7 @@ interface IStokAuthProps {
     onErrorClear: () => void;
     isRelayActive: boolean;
     forcedMode?: 'DEFAULT' | 'JOIN';
-    connectionStage?: string; // Passed from parent
+    connectionStage?: string; 
 }
 
 export const IStokAuth: React.FC<IStokAuthProps> = ({ 
@@ -33,14 +33,25 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
     const [pin, setPin] = useState('');
     const [isJoining, setIsJoining] = useState(forcedMode === 'JOIN');
     const [isScanning, setIsScanning] = useState(false);
+    const [isNativeScanSupported, setIsNativeScanSupported] = useState(true);
+    
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const scanIntervalRef = useRef<any>(null);
 
-    // Glitch effect only for Host mode visual
+    // Glitch effect
     const [glitchedIdentity, setGlitchedIdentity] = useState(identity);
 
     const isConnecting = connectionStage !== 'IDLE' && connectionStage !== 'SECURE';
+
+    // --- CHECK CAPABILITIES ---
+    useEffect(() => {
+        // BarcodeDetector is Chrome/Android only usually. 
+        // If missing, we fallback to Manual/System Camera logic.
+        if (!('BarcodeDetector' in window)) {
+            setIsNativeScanSupported(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (forcedMode === 'DEFAULT') {
@@ -72,16 +83,65 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
 
     useEffect(() => {
         if (forcedMode === 'JOIN') setIsJoining(true);
+        
+        // Auto-Check URL params if we just opened in JOIN mode
+        const params = new URLSearchParams(window.location.search);
+        const connect = params.get('connect');
+        const key = params.get('key');
+        if (connect && key) {
+             setTargetId(connect);
+             setPin(key);
+             // Auto join after short delay for visual confirmation
+             setTimeout(() => onJoin(connect, key), 800);
+        }
     }, [forcedMode]);
 
-    // --- PASTE HANDLER ---
+    // --- PASTE & PARSE HANDLER ---
+    const processRawInput = (text: string) => {
+        if (!text) return;
+        
+        let foundId = '';
+        let foundKey = '';
+
+        try {
+            // Case 1: Full URL (http://.../?connect=ID&key=PIN or .../#connect=ID&key=PIN)
+            if (text.includes('connect=') && text.includes('key=')) {
+                // Hacky parse for any URL structure
+                const connectMatch = text.match(/connect=([^&]+)/);
+                const keyMatch = text.match(/key=([^&]+)/);
+                if (connectMatch) foundId = connectMatch[1];
+                if (keyMatch) foundKey = keyMatch[1];
+            } 
+            // Case 2: ID:PIN format
+            else if (text.includes(':')) {
+                const parts = text.split(':');
+                if (parts.length === 2 && parts[1].length >= 4) {
+                    foundId = parts[0];
+                    foundKey = parts[1];
+                }
+            }
+            // Case 3: Just ID (assume user will type PIN)
+            else {
+                foundId = text.trim();
+            }
+        } catch (e) {}
+
+        if (foundId) {
+            setTargetId(foundId);
+            if (navigator.vibrate) navigator.vibrate(50);
+            if (foundKey) {
+                setPin(foundKey);
+                // If we found both, auto trigger join
+                setTimeout(() => onJoin(foundId, foundKey), 500);
+            }
+        }
+    };
+
     const handlePaste = async () => {
         try {
             const text = await navigator.clipboard.readText();
-            if (text) setTargetId(text.trim());
+            processRawInput(text);
         } catch (err) {
-            console.error('Clipboard failed', err);
-            // Fallback for non-secure contexts
             const input = document.getElementById('target-id-input') as HTMLInputElement;
             input?.focus();
             document.execCommand('paste');
@@ -90,6 +150,11 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
 
     // --- QR SCANNER LOGIC ---
     const startScanner = async () => {
+        if (!isNativeScanSupported) {
+            alert("Browser ini tidak mendukung in-app scanning. Gunakan kamera bawaan HP untuk scan QR Code, atau tempel link.");
+            return;
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: 'environment' } 
@@ -97,26 +162,19 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
             streamRef.current = stream;
             setIsScanning(true);
             
-            // Native Barcode Detection (Chrome/Android)
-            if ('BarcodeDetector' in window) {
-                const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-                scanIntervalRef.current = setInterval(async () => {
-                    if (videoRef.current) {
-                        try {
-                            const barcodes = await detector.detect(videoRef.current);
-                            if (barcodes.length > 0) {
-                                const rawValue = barcodes[0].rawValue;
-                                processScannedData(rawValue);
-                            }
-                        } catch (e) {}
-                    }
-                }, 500);
-            } else {
-                // TODO: Add fallback JS QR library here if needed
-                console.warn("Native BarcodeDetector not supported.");
-                alert("Browser does not support native QR scanning. Please enter ID manually.");
-                stopScanner();
-            }
+            const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+            scanIntervalRef.current = setInterval(async () => {
+                if (videoRef.current) {
+                    try {
+                        const barcodes = await detector.detect(videoRef.current);
+                        if (barcodes.length > 0) {
+                            const rawValue = barcodes[0].rawValue;
+                            processRawInput(rawValue);
+                            stopScanner();
+                        }
+                    } catch (e) {}
+                }
+            }, 500);
         } catch (err) {
             console.error("Camera error", err);
             alert("Tidak dapat mengakses kamera. Pastikan izin diberikan.");
@@ -132,62 +190,15 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
         setIsScanning(false);
     };
 
-    const processScannedData = (data: string) => {
-        if (navigator.vibrate) navigator.vibrate(200); // Haptic feedback on detection
-        
-        let foundId = '';
-        let foundKey = '';
-
-        // Try to parse IStok URL format: url/#connect=ID&key=PIN
-        try {
-            const urlObj = new URL(data);
-            // Handle hash routing
-            const hashParams = new URLSearchParams(urlObj.hash.replace('#', '?'));
-            const connectId = hashParams.get('connect');
-            const key = hashParams.get('key');
-            
-            if (connectId) foundId = connectId;
-            if (key) foundKey = key;
-        } catch (e) {
-            // Not a URL, treat as raw ID?
-            if (data.includes(':')) {
-                // Maybe format ID:KEY?
-                const parts = data.split(':');
-                foundId = parts[0];
-                foundKey = parts[1];
-            } else {
-                foundId = data;
-            }
-        }
-        
-        if (foundId) {
-            setTargetId(foundId);
-            if (foundKey) setPin(foundKey);
-            
-            stopScanner();
-            
-            // Auto-trigger if we have both
-            if (foundId && foundKey) {
-                setTimeout(() => onJoin(foundId, foundKey), 500);
-            }
-        }
-    };
-
     useEffect(() => {
         if (isScanning && videoRef.current && streamRef.current) {
             videoRef.current.srcObject = streamRef.current;
         }
     }, [isScanning]);
 
-    // Cleanup on unmount
     useEffect(() => {
         return () => stopScanner();
     }, []);
-
-    const handleJoinSubmit = () => {
-        if (!targetId || pin.length < 4) return;
-        onJoin(targetId, pin);
-    };
 
     // --- VIEW: SCANNER OVERLAY ---
     if (isScanning) {
@@ -200,64 +211,42 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                         playsInline 
                         className="w-full h-full object-cover"
                     />
-                    {/* Scanning Overlay UI */}
                     <div className="absolute inset-0 bg-black/30"></div>
-                    
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 border-emerald-500/50 rounded-3xl animate-pulse flex items-center justify-center">
                         <div className="w-60 h-60 border border-emerald-500/20 rounded-2xl relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500 shadow-[0_0_20px_#10b981] animate-[scan_2s_linear_infinite]"></div>
                         </div>
-                        {/* Corner Accents */}
-                        <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-emerald-500 rounded-tl-xl"></div>
-                        <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-emerald-500 rounded-tr-xl"></div>
-                        <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-emerald-500 rounded-bl-xl"></div>
-                        <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-emerald-500 rounded-br-xl"></div>
-                    </div>
-
-                    <div className="absolute top-12 w-full text-center px-4">
-                        <div className="bg-black/60 text-white px-6 py-3 rounded-full text-xs font-black uppercase tracking-widest backdrop-blur-md border border-white/10 shadow-xl inline-flex items-center gap-2">
-                            <QrCode size={14} className="text-emerald-500"/> ALIGN QR CODE
-                        </div>
                     </div>
                 </div>
                 <div className="p-8 bg-black flex justify-center pb-safe">
-                    <button 
-                        onClick={stopScanner}
-                        className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/20 active:scale-95 transition-all hover:bg-white/20"
-                    >
+                    <button onClick={stopScanner} className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center text-white border border-white/20 active:scale-95 transition-all">
                         <X size={24} />
                     </button>
                 </div>
-                <style>{`
-                    @keyframes scan {
-                        0% { top: 0%; opacity: 0; }
-                        10% { opacity: 1; }
-                        90% { opacity: 1; }
-                        100% { top: 100%; opacity: 0; }
-                    }
-                `}</style>
+                <style>{`@keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }`}</style>
             </div>
         );
     }
 
-    // --- VIEW: CLEAN JOIN FORM (Forced Mode) ---
+    // --- VIEW: JOIN FORM ---
     if (forcedMode === 'JOIN') {
         return (
             <div className="w-full max-w-md mx-auto p-6 animate-slide-up flex flex-col gap-6 relative">
                 
                 {/* Connecting Overlay */}
                 {isConnecting && (
-                    <div className="absolute inset-0 z-50 bg-[#09090b]/90 backdrop-blur-sm rounded-[32px] flex flex-col items-center justify-center text-center p-6 animate-fade-in">
+                    <div className="absolute inset-0 z-50 bg-[#09090b]/95 backdrop-blur-md rounded-[32px] flex flex-col items-center justify-center text-center p-6 animate-fade-in border border-emerald-500/20">
                         <div className="relative mb-6">
-                            <div className="w-20 h-20 rounded-full border-4 border-blue-500/30 border-t-blue-500 animate-spin"></div>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                                <ShieldCheck size={24} className="text-blue-500 animate-pulse" />
+                            {/* Radar Effect */}
+                            <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping"></div>
+                            <div className="w-24 h-24 rounded-full border-4 border-emerald-500/30 border-t-emerald-500 animate-spin relative z-10 flex items-center justify-center bg-[#09090b]">
+                                <Activity size={32} className="text-emerald-500" />
                             </div>
                         </div>
-                        <h3 className="text-lg font-black text-white uppercase tracking-widest mb-1">
+                        <h3 className="text-lg font-black text-white uppercase tracking-widest mb-1 animate-pulse">
                             {connectionStage.replace('_', ' ')}
                         </h3>
-                        <p className="text-xs font-mono text-neutral-400">Establishing secure handshake...</p>
+                        <p className="text-xs font-mono text-emerald-600/70">ESTABLISHING SECURE TUNNEL...</p>
                     </div>
                 )}
 
@@ -266,33 +255,31 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                         <ScanLine size={32} />
                     </div>
                     <h2 className="text-2xl font-black text-white uppercase tracking-tight">Gabung Sesi</h2>
-                    <p className="text-neutral-400 text-xs font-medium">Masukkan ID Target atau Scan QR untuk terhubung.</p>
+                    <p className="text-neutral-400 text-xs font-medium">Masukkan ID Target atau Link untuk terhubung.</p>
                 </div>
 
                 <div className="space-y-4">
-                    {/* ID Input Group */}
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest ml-1">Target ID</label>
+                        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest ml-1">Target ID / Link</label>
                         <div className="relative flex items-center">
                             <input 
                                 id="target-id-input"
                                 value={targetId}
-                                onChange={(e) => setTargetId(e.target.value)}
-                                placeholder="Tempel ID disini..." 
+                                onChange={(e) => processRawInput(e.target.value)}
+                                placeholder="Paste ID or Link..." 
                                 className="w-full bg-[#121214] border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-neutral-600 pr-12"
                                 autoFocus
                             />
                             <button 
                                 onClick={handlePaste}
                                 className="absolute right-3 p-2 text-neutral-500 hover:text-white bg-white/5 rounded-xl hover:bg-white/10 transition-all"
-                                title="Paste"
+                                title="Smart Paste"
                             >
                                 <Clipboard size={18} />
                             </button>
                         </div>
                     </div>
 
-                    {/* PIN Input */}
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest ml-1">Akses PIN</label>
                         <div className="relative">
@@ -302,23 +289,32 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                                 type="text"
                                 inputMode="numeric"
                                 maxLength={6}
-                                placeholder="6-Digit PIN" 
+                                placeholder="******" 
                                 className="w-full bg-[#121214] border border-white/10 rounded-2xl px-5 py-4 text-sm font-mono text-white focus:outline-none focus:border-blue-500 transition-all placeholder:text-neutral-600 text-center tracking-[0.5em]"
                             />
                             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600 pointer-events-none" size={16} />
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
                     <div className="grid grid-cols-5 gap-3 pt-2">
+                        {isNativeScanSupported ? (
+                            <button 
+                                onClick={startScanner}
+                                className="col-span-2 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                                <Camera size={18} /> SCAN
+                            </button>
+                        ) : (
+                            <button 
+                                className="col-span-2 py-4 bg-white/5 border border-white/10 text-neutral-500 rounded-2xl font-bold text-[10px] uppercase tracking-wider flex flex-col items-center justify-center gap-1 cursor-not-allowed opacity-50"
+                                disabled
+                            >
+                                <span className="line-through">SCANNER</span>
+                                <span className="text-[8px]">USE CAM APP</span>
+                            </button>
+                        )}
                         <button 
-                            onClick={startScanner}
-                            className="col-span-2 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95"
-                        >
-                            <Camera size={18} /> SCAN
-                        </button>
-                        <button 
-                            onClick={handleJoinSubmit}
+                            onClick={() => onJoin(targetId, pin)}
                             disabled={!targetId || pin.length < 4}
                             className="col-span-3 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -341,11 +337,9 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
     // --- VIEW: DEFAULT DASHBOARD ---
     return (
         <div className="flex flex-col items-center justify-center w-full max-w-4xl mx-auto space-y-12 z-10">
-            
-            {/* HEADER */}
             <div className="text-center space-y-4 animate-slide-down">
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">
-                    <ShieldCheck size={12}/> TITANIUM RELAY PROTOCOL v0.52
+                    <ShieldCheck size={12}/> TITANIUM RELAY PROTOCOL v0.55
                 </div>
                 <h1 className="text-5xl md:text-7xl font-black italic tracking-tighter text-white uppercase drop-shadow-2xl">
                     SECURE <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-500 animate-gradient-text">UPLINK</span>
@@ -362,7 +356,6 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                 </p>
             </div>
 
-            {/* IDENTITY CARD */}
             <div className="w-full max-w-md relative group animate-slide-up" style={{ animationDelay: '100ms' }}>
                 <div className="bg-[#0a0a0b] border border-white/10 rounded-[32px] p-6 relative overflow-hidden ring-1 ring-white/5">
                     <div className="flex items-center justify-between relative z-10 mb-4">
@@ -390,7 +383,6 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                 </div>
             </div>
 
-            {/* ACTION DECK */}
             <div className="w-full max-w-4xl z-10 animate-slide-up grid grid-cols-1 md:grid-cols-2 gap-6" style={{ animationDelay: '200ms' }}>
                 <button onClick={onHost} className="group relative p-8 rounded-[32px] bg-zinc-900/50 border border-white/10 hover:border-emerald-500/50 transition-all duration-500 hover:bg-zinc-900 flex flex-col items-start gap-6 text-left ring-1 ring-transparent hover:ring-emerald-500/20 active:scale-[0.98]">
                     <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
@@ -419,7 +411,6 @@ export const IStokAuth: React.FC<IStokAuthProps> = ({
                 </button>
             </div>
             
-            {/* Fallback Join UI (Forced Mode inside Default) */}
             {isJoining && forcedMode === 'DEFAULT' && (
                 <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
                     <div className="relative w-full max-w-md bg-[#09090b] border border-white/10 rounded-[32px] p-6 shadow-2xl">

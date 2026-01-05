@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MobileNav } from './components/MobileNav';
@@ -255,8 +256,13 @@ const App: React.FC = () => {
             const params = new URLSearchParams(search);
 
             // DETECT ISTOK LINK (Has #connect or ?connect)
-            if (hash.includes('connect=') || hash.includes('key=') || params.get('connect')) {
+            // Priority: URL params first, then Hash params
+            const connectId = params.get('connect') || new URLSearchParams(hash.replace('#', '?')).get('connect');
+
+            if (connectId) {
                 console.log("[HYDRA-LINK] Incoming P2P Connection Detected. Switching Mode.");
+                // Note: In a real app, you might want to force Auth first if security is strict.
+                // For "Seamless" experience requested, we switch to ISTOK which handles its own auth flow/scanner.
                 setSessionMode('ISTOK');
             }
         };
