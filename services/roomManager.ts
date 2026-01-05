@@ -38,7 +38,6 @@ export class RoomManager {
     // The "Source of Truth" State
     private participants: Map<string, Participant> = new Map();
     private messageHistory: any[] = [];
-    private pendingQueue: NetworkPacket[] = [];
     
     // Callbacks for UI updates
     private onStateUpdate: (state: any) => void;
@@ -77,13 +76,12 @@ export class RoomManager {
             });
 
             conn.on('data', (data: any) => this.processPacket(data, conn.peer));
+            conn.on('close', () => this.handleDisconnect(conn.peer));
+            conn.on('error', () => this.handleDisconnect(conn.peer));
             
             // Send Welcome Handshake
             this.sendTo(conn.peer, 'HANDSHAKE', { hostName: this.myName });
         });
-
-        conn.on('close', () => this.handleDisconnect(conn.peer));
-        conn.on('error', () => this.handleDisconnect(conn.peer));
     }
 
     // --- 2. CLIENT LOGIC ---
@@ -112,7 +110,7 @@ export class RoomManager {
         });
     }
 
-    // --- 3. THE "SMART" ROUTER (Logika Pengaturan Alur) ---
+    // --- 3. THE "SMART" ROUTER (Packet Logic) ---
     private processPacket(packet: NetworkPacket, senderId: string) {
         // Update Heartbeat
         const participant = this.participants.get(senderId);
@@ -139,9 +137,8 @@ export class RoomManager {
                 }
                 break;
             case 'SYNC_RESP':
-                // Client updates their local state
+                // Client updates their local state from host
                 this.messageHistory = packet.payload.messages;
-                // Update UI history
                 this.onMessage(this.messageHistory); 
                 break;
         }
@@ -160,7 +157,6 @@ export class RoomManager {
 
     // --- 4. DATA TRANSMISSION ---
     
-    // Public API to send message from UI
     public broadcastMessage(content: string, type: 'TEXT' | 'IMAGE' | 'AUDIO') {
         const msgPayload = {
             id: uuidv4(),
@@ -203,9 +199,6 @@ export class RoomManager {
                 timestamp: Date.now()
             };
             target.conn.send(packet);
-        } else {
-            console.warn(`[ROOM] Failed to send to ${targetId}, peer offline.`);
-            // TODO: Add to pendingQueue here for Smart Reconnect
         }
     }
 
@@ -223,7 +216,6 @@ export class RoomManager {
         this.participants.forEach(p => {
             if (now - p.lastPing > 15000) { // 15s timeout
                 p.status = 'OFFLINE';
-                debugService.log('WARN', 'ROOM', 'TIMEOUT', `Peer ${p.name} timed out.`);
                 this.notifyUI();
             }
         });
@@ -245,7 +237,6 @@ export class RoomManager {
             status: p.status,
             isHost: p.role === 'HOST'
         }));
-        // Add self
         users.unshift({ id: this.myId, name: `${this.myName} (YOU)`, status: 'ONLINE', isHost: this.role === 'HOST' });
         
         this.onStateUpdate(users);
