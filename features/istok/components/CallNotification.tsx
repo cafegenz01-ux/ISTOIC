@@ -12,6 +12,7 @@ export const CallNotification: React.FC<CallNotificationProps> = ({ identity, on
 
     useEffect(() => {
         if (navigator.vibrate) {
+            // Strong continuous vibration pattern
             navigator.vibrate([500, 500, 500, 500, 500, 500, 500, 500, 500]);
         }
         return () => {

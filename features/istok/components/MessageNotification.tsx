@@ -33,7 +33,7 @@ export const MessageNotification: React.FC<MessageNotificationProps> = ({ sender
 
     return (
         <div 
-            className="fixed top-[calc(env(safe-area-inset-top)+12px)] left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-sm z-[8000] animate-slide-down cursor-pointer"
+            className="fixed top-[calc(env(safe-area-inset-top)+12px)] left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-sm z-[12000] animate-slide-down cursor-pointer pointer-events-auto"
             onClick={onClick}
         >
             <div className="relative overflow-hidden bg-[#09090b]/90 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.5)] ring-1 ring-white/5">

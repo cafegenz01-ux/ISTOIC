@@ -21,8 +21,8 @@ interface TeleponanProps {
     secretPin?: string;
 }
 
-// ... (VoiceProcessor class remains same as provided previously, it was good) ...
-// Re-including Audio Engine V2 for completeness in this file context
+// ... (VoiceProcessor and WaveformVisualizer classes remain exactly the same as provided in previous context) ...
+// Re-declaring for completeness of file replacement.
 
 class VoiceProcessor {
     ctx: AudioContext;
@@ -207,10 +207,10 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     const engineRef = useRef<VoiceProcessor | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     
-    // Auto-answer if incoming call provided
+    // Auto-answer if incoming call provided (triggered from IStokView)
     useEffect(() => {
-        if (incomingCall) handleIncomingCall(incomingCall, false); // Wait for user to accept
-        else if (initialTargetId) makeCall();
+        if (incomingCall) handleIncomingCall(incomingCall, false); 
+        else if (initialTargetId && existingPeer) makeCall();
     }, []);
 
     // Timer
@@ -305,7 +305,6 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
         }
     };
 
-    // ... (Render Logic matches original but cleaned up) ...
     return (
         <div className="fixed inset-0 z-[10000] bg-[#050505] flex flex-col font-mono text-emerald-500 animate-fade-in">
             <audio ref={audioRef} className="hidden" playsInline autoPlay />
