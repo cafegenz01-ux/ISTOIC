@@ -1,34 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import Peer from 'peerjs';
-import { v4 as uuidv4 } from 'uuid';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
     encryptData, decryptData
 } from '../../utils/crypto'; 
 import { TeleponanView } from '../teleponan/TeleponanView';
+import { activatePrivacyShield } from '../../utils/privacyShield';
 import { 
-    Send, Server, ScanLine, Users, Mic, Square,
-    Phone, Skull, ArrowLeft, WifiOff, 
-    X, Radio as RadioIcon, Paperclip, Wifi
+    Send, Zap, Radio, ScanLine, Server,
+    Mic, Square, Menu, Skull, PhoneCall, 
+    QrCode, X, RefreshCw, Lock, Flame, 
+    ShieldAlert, ArrowLeft, BrainCircuit, Sparkles,
+    Wifi, WifiOff
 } from 'lucide-react';
 
-// --- HOOKS & UTILS ---
+// --- HOOKS & SERVICES ---
 import useLocalStorage from '../../hooks/useLocalStorage';
-import { useIDB } from '../../hooks/useIDB'; 
-
-// --- COMPONENTS ---
-import { SidebarIStokContact, IStokSession, IStokProfile, IStokContact } from './components/SidebarIStokContact';
+import { OMNI_KERNEL } from '../../services/omniRace'; // Integrasi Omni Race
+import { SidebarIStokContact, IStokSession } from './components/SidebarIStokContact';
 import { ShareConnection } from './components/ShareConnection'; 
 import { ConnectionNotification } from './components/ConnectionNotification';
 import { CallNotification } from './components/CallNotification';
-import { IStokAuth } from './components/IStokAuth';
-import { IStokWalkieTalkie } from './components/IStokWalkieTalkie';
-import { MessageBubble } from './components/MessageBubble'; // Pastikan file ini dibuat (lihat di bawah)
-import { compressImage } from './components/gambar';
-import { getSupportedMimeType } from './components/vn';
+import { MessageNotification } from './components/MessageNotification';
+import { AudioMessagePlayer } from './components/vn';
+import { compressImage, ImageMessage } from './components/gambar';
+
+// --- CONSTANTS ---
+const CHUNK_SIZE = 16384; 
+const HEARTBEAT_MS = 5000;
 
 // --- TYPES ---
-const HEARTBEAT_INTERVAL = 3000;
-const CHUNK_SIZE = 16 * 1024;
+interface IStokProfile {
+    id: string;        
+    username: string;  
+    created: number;
+}
 
 interface Message {
     id: string;
@@ -39,26 +43,24 @@ interface Message {
     status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ';
     duration?: number;
     size?: number;
+    fileName?: string; 
+    isMasked?: boolean;
     mimeType?: string;
-    fileName?: string;
+    ttl?: number; 
 }
 
 type AppMode = 'SELECT' | 'HOST' | 'JOIN' | 'CHAT';
-type ConnectionStage = 'IDLE' | 'LOCATING_PEER' | 'HANDSHAKE_INIT' | 'VERIFYING_KEYS' | 'SECURE' | 'RECONNECTING';
+type ConnectionStage = 'IDLE' | 'LOCATING_PEER' | 'FETCHING_RELAYS' | 'VERIFYING_KEYS' | 'ESTABLISHING_TUNNEL' | 'AWAITING_APPROVAL' | 'SECURE' | 'RECONNECTING';
 
 // --- UTILS ---
-const generateStableId = () => `ISTOK-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 const generateAnomalyIdentity = () => `ANOMALY-${Math.floor(Math.random() * 9000) + 1000}`;
+const generateStableId = () => `ISTOK-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-const getIceServers = async (): Promise<any[]> => {
-    // Gunakan Public STUN Google sebagai default yang stabil
-    return [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
-    ];
+const triggerHaptic = (ms: number | number[]) => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(ms);
 };
 
-const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING') => {
+const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING' | 'BUZZ' | 'AI_THINK') => {
     try {
         const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return;
@@ -75,6 +77,11 @@ const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING') => {
             gain.gain.setValueAtTime(0.1, now);
             gain.gain.linearRampToValueAtTime(0, now + 0.1);
             osc.start(now); osc.stop(now + 0.1);
+        } else if (type === 'MSG_OUT') {
+            osc.frequency.setValueAtTime(400, now);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.05);
+            osc.start(now); osc.stop(now + 0.05);
         } else if (type === 'CONNECT') {
             osc.frequency.setValueAtTime(600, now);
             osc.frequency.linearRampToValueAtTime(1200, now + 0.2);
@@ -82,50 +89,164 @@ const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING') => {
             gain.gain.linearRampToValueAtTime(0, now + 0.2);
             osc.start(now); osc.stop(now + 0.2);
         } else if (type === 'CALL_RING') {
-            osc.type = 'square';
+            osc.type = 'triangle';
             osc.frequency.setValueAtTime(880, now);
-            osc.frequency.exponentialRampToValueAtTime(440, now + 0.5);
+            osc.frequency.setValueAtTime(880, now + 0.5);
             gain.gain.setValueAtTime(0.1, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.5);
+            gain.gain.setValueAtTime(0, now + 0.5);
             osc.start(now); osc.stop(now + 0.5);
+        } else if (type === 'BUZZ') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(now); osc.stop(now + 0.3);
+        } else if (type === 'AI_THINK') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1200, now);
+            osc.frequency.exponentialRampToValueAtTime(1800, now + 0.1);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.1);
+            osc.start(now); osc.stop(now + 0.1);
         }
-    } catch (e) {}
+    } catch(e) {}
 };
 
-// --- SUB-COMPONENT: INPUT ---
-const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, recordingTime, onStartRecord, onStopRecord, onAttach, onTogglePTT }: any) => {
+// --- HELPER: ROBUST ICE SERVERS ---
+// Menggabungkan Public STUN dengan Metered (jika ada) untuk menembus firewall
+const getIceServers = async (): Promise<any[]> => {
+    const publicIce = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' },
+        { urls: 'stun:stun.stunprotocol.org:3478' },
+        { urls: 'stun:stun.framasoft.org:3478' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+    ];
+
+    try {
+        const apiKey = import.meta.env.VITE_METERED_API_KEY;
+        if (!apiKey) return publicIce;
+
+        const response = await fetch(`https://istoic.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
+        if (!response.ok) return publicIce;
+        
+        const turnServers = await response.json();
+        console.log("[ISTOK_NET] Loaded Metered TURN Servers");
+        return [...publicIce, ...turnServers];
+    } catch (e) {
+        console.warn("[ISTOK_NET] Failed to fetch TURN, using public STUN only.");
+        return publicIce;
+    }
+};
+
+// --- SUB-COMPONENTS ---
+
+const BurnerTimer = ({ ttl, onBurn }: { ttl: number, onBurn: () => void }) => {
+    const [timeLeft, setTimeLeft] = useState(ttl);
+    useEffect(() => {
+        if (timeLeft <= 0) { onBurn(); return; }
+        const timer = setInterval(() => setTimeLeft(p => p - 1), 1000);
+        return () => clearInterval(timer);
+    }, [timeLeft, onBurn]);
+    return (
+        <div className="flex items-center gap-2 mt-1 select-none">
+            <Flame size={10} className="text-red-500 animate-pulse" />
+            <div className="w-full h-0.5 bg-red-900/50 rounded-full overflow-hidden">
+                <div className="h-full bg-red-500 transition-all duration-1000 ease-linear" style={{width: `${(timeLeft/ttl)*100}%`}}></div>
+            </div>
+        </div>
+    );
+};
+
+const MessageBubble = React.memo(({ msg, setViewImage, onBurn }: { msg: Message, setViewImage: (img: string) => void, onBurn: (id: string) => void }) => {
+    const [burnStarted, setBurnStarted] = useState(msg.type !== 'IMAGE'); // Image burns after reveal
+
+    return (
+        <div className={`flex ${msg.sender === 'ME' ? 'justify-end' : 'justify-start'} animate-fade-in mb-3`}>
+            <div className={`max-w-[85%] flex flex-col ${msg.sender === 'ME' ? 'items-end' : 'items-start'}`}>
+                <div className={`rounded-2xl text-sm border shadow-sm relative overflow-hidden ${msg.sender === 'ME' ? 'bg-emerald-900/40 border-emerald-500/30 text-emerald-100 rounded-tr-none' : 'bg-[#1a1a1a] text-neutral-200 border-white/10 rounded-tl-none'} ${msg.type === 'TEXT' ? 'px-4 py-2' : 'p-1'}`}>
+                    {msg.type === 'IMAGE' ? 
+                        <ImageMessage content={msg.content} size={msg.size} onClick={() => setViewImage(msg.content)} onReveal={() => setBurnStarted(true)} /> : 
+                     msg.type === 'AUDIO' ? <AudioMessagePlayer src={msg.content} duration={msg.duration} /> :
+                     msg.type === 'FILE' ? (
+                        <a href={`data:${msg.mimeType};base64,${msg.content}`} download={msg.fileName} className="flex items-center gap-3 p-3 hover:bg-white/5 transition-colors rounded-xl">
+                            <div className="p-2 bg-white/10 rounded-lg"><ScanLine size={16}/></div>
+                            <div className="overflow-hidden"><p className="text-xs font-bold truncate max-w-[150px]">{msg.fileName}</p><p className="text-[9px] text-neutral-400">{(msg.size ? msg.size/1024 : 0).toFixed(1)} KB</p></div>
+                        </a>
+                     ) : <span className="whitespace-pre-wrap leading-relaxed">{msg.content}</span>}
+                    
+                    {msg.ttl && burnStarted && <BurnerTimer ttl={msg.ttl} onBurn={() => onBurn(msg.id)} />}
+                </div>
+                <div className="flex items-center gap-1 mt-1 px-1 opacity-60">
+                    {msg.ttl && <ShieldAlert size={8} className="text-red-500" />}
+                    <span className="text-[9px] font-mono">{new Date(msg.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+// --- INPUT COMPONENT WITH OMNI RACE INTEGRATION ---
+const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, recordingTime, isVoiceMasked, onToggleMask, onStartRecord, onStopRecord, onAttach, ttlMode, onToggleTtl, onAiAssist, isAiThinking }: any) => {
     const [text, setText] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Expose setText to parent/AI
+    useEffect(() => {
+        if (inputRef.current) {
+            // Logic to allow external updates if needed, but simplistic approach:
+            // Just bind value={text} is enough if we controlled it
+        }
+    }, []);
+
+    // Helper to insert AI text
+    const insertText = (newText: string) => setText(newText);
+
     return (
-        <div className="bg-[#09090b] border-t border-white/10 p-3 pb-[max(env(safe-area-inset-bottom),1rem)] z-20">
+        <div className="bg-[#09090b] border-t border-white/10 p-3 z-20 pb-[max(env(safe-area-inset-bottom),1rem)]">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between mb-2 px-1">
+                 <div className="flex gap-2">
+                     <button onClick={onToggleTtl} className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider transition-all ${ttlMode > 0 ? 'bg-red-500/10 border-red-500/30 text-red-500' : 'bg-white/5 border-white/5 text-neutral-500'}`}>
+                        <Flame size={10} className={ttlMode > 0 ? 'fill-current' : ''} />
+                        {ttlMode > 0 ? `${ttlMode}s` : 'OFF'}
+                     </button>
+                     <button 
+                        onClick={() => onAiAssist(text, insertText)} 
+                        disabled={isAiThinking}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[9px] font-black uppercase tracking-wider transition-all ${isAiThinking ? 'bg-purple-500/20 border-purple-500 text-purple-400 animate-pulse' : 'bg-white/5 border-white/5 text-neutral-500 hover:text-purple-400 hover:border-purple-500/30'}`}
+                     >
+                        {isAiThinking ? <Sparkles size={10} className="animate-spin" /> : <BrainCircuit size={10} />}
+                        {isAiThinking ? 'RACING...' : 'AI ASSIST'}
+                     </button>
+                 </div>
+                 <span className="text-[8px] font-mono text-emerald-500/50 flex items-center gap-1"><Lock size={8}/> E2EE_ON</span>
+            </div>
+
             <div className="flex gap-2 items-end">
-                <button onClick={onAttach} className="p-3 rounded-full text-neutral-400 hover:text-white hover:bg-white/10 transition-colors"><Paperclip size={20}/></button>
-                <div className="flex-1 bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-emerald-500/50 transition-colors">
+                <button onClick={onAttach} className="p-3 bg-white/5 rounded-full text-neutral-400 hover:text-white transition-colors"><Zap size={20}/></button>
+                <div className="flex-1 bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-emerald-500/30 transition-colors relative">
                     <input 
                         ref={inputRef}
                         value={text} 
-                        onChange={(e) => { setText(e.target.value); onTyping(true); }} 
-                        onBlur={() => onTyping(false)}
+                        onChange={e=>{setText(e.target.value); onTyping();}} 
                         onKeyDown={e=>e.key==='Enter'&&text.trim()&&(onSend(text),setText(''))} 
-                        placeholder={isRecording ? `Recording... ${recordingTime}s` : "Pesan Terenkripsi..."}
+                        placeholder={isRecording ? "Recording encrypted audio..." : "Message..."} 
                         className="w-full bg-transparent outline-none text-white text-sm placeholder:text-neutral-600" 
-                        disabled={disabled || isRecording}
+                        disabled={disabled||isRecording}
                     />
                 </div>
                 {text.trim() ? (
-                    <button onClick={()=>{onSend(text);setText(''); inputRef.current?.focus();}} className="p-3 bg-emerald-600 hover:bg-emerald-500 rounded-full text-white transition-all shadow-lg active:scale-95"><Send size={20}/></button>
+                    <button onClick={()=>{onSend(text);setText('');}} className="p-3 bg-emerald-600 rounded-full text-white shadow-lg hover:bg-emerald-500 active:scale-95 transition-all"><Send size={20}/></button>
                 ) : (
-                    <>
-                        <button onClick={onTogglePTT} className="p-3 rounded-full bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-black transition-all"><RadioIcon size={20} /></button>
-                        <button 
-                            onMouseDown={onStartRecord} onMouseUp={onStopRecord} 
-                            onTouchStart={onStartRecord} onTouchEnd={onStopRecord} 
-                            className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white animate-pulse scale-110' : 'bg-white/5 text-neutral-400 hover:text-white'}`}
-                        >
-                            {isRecording ? <Square size={20} fill="currentColor" /> : <Mic size={20} />}
-                        </button>
-                    </>
+                    <button 
+                        onMouseDown={onStartRecord} onMouseUp={onStopRecord} 
+                        onTouchStart={onStartRecord} onTouchEnd={onStopRecord} 
+                        className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-500 text-white shadow-[0_0_15px_red] animate-pulse' : 'bg-white/5 text-neutral-400'}`}
+                    >
+                        <Mic size={20}/>
+                    </button>
                 )}
             </div>
         </div>
@@ -133,248 +254,208 @@ const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, record
 });
 
 // --- MAIN COMPONENT ---
+
 export const IStokView: React.FC = () => {
-    // State Aplikasi
+    // STATE
     const [mode, setMode] = useState<AppMode>('SELECT');
     const [stage, setStage] = useState<ConnectionStage>('IDLE');
     const [errorMsg, setErrorMsg] = useState<string>('');
     
-    // Data User
+    // DATA
     const [myProfile, setMyProfile] = useLocalStorage<IStokProfile>('istok_profile_v1', {
         id: generateStableId(),
         username: generateAnomalyIdentity(),
-        created: Date.now(),
-        idChangeHistory: []
+        created: Date.now()
     });
     const [sessions, setSessions] = useLocalStorage<IStokSession[]>('istok_sessions', []);
     
-    // Koneksi Data
+    // CONNECTION
     const [targetPeerId, setTargetPeerId] = useState<string>('');
     const [accessPin, setAccessPin] = useState<string>('');
-    const [pendingJoin, setPendingJoin] = useState<{id: string, pin: string} | null>(null);
-
-    // Refs
-    const peerRef = useRef<any>(null);
-    const connRef = useRef<any>(null);
-    const pinRef = useRef(accessPin); // Selalu sync dengan state
-    const heartbeatRef = useRef<any>(null);
-    const msgEndRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const chunkBuffer = useRef<Record<string, any>>({});
-
-    // UI States
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [incomingRequest, setIncomingRequest] = useState<{ peerId: string, identity: string, conn: any } | null>(null);
-    const [isPeerOnline, setIsPeerOnline] = useState(false);
-    const [isHandshaking, setIsHandshaking] = useState(false); // Loading state saat terima request
-    const [showContactSidebar, setShowContactSidebar] = useState(false);
+    const [pendingJoin, setPendingJoin] = useState<{id:string, pin:string} | null>(null);
+    
+    // UI FLAGS
+    const [showSidebar, setShowSidebar] = useState(false);
     const [showShare, setShowShare] = useState(false);
-    const [showWalkieTalkie, setShowWalkieTalkie] = useState(false);
-    const [viewImage, setViewImage] = useState<string | null>(null);
-
-    // Calling States
-    const [incomingMediaCall, setIncomingMediaCall] = useState<any>(null);
-    const [activeTeleponan, setActiveTeleponan] = useState(false);
-    const [outgoingCallTarget, setOutgoingCallTarget] = useState<string | null>(null);
-
-    // Recording States
+    const [showCall, setShowCall] = useState(false);
+    const [viewImage, setViewImage] = useState<string|null>(null);
+    
+    // CHAT & MEDIA
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [isPeerOnline, setIsPeerOnline] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const [isVoiceMasked, setIsVoiceMasked] = useState(false);
+    const [ttlMode, setTtlMode] = useState(0); // 0 = Off
+    const [isAiThinking, setIsAiThinking] = useState(false); // Omni Race State
+
+    // NOTIFICATIONS
+    const [incomingRequest, setIncomingRequest] = useState<any>(null);
+    const [incomingCall, setIncomingCall] = useState<any>(null);
+    const [latestNotif, setLatestNotif] = useState<any>(null);
+
+    // REFS
+    const peerRef = useRef<any>(null);
+    const connRef = useRef<any>(null);
+    const pinRef = useRef(accessPin);
+    const msgEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const chunkBuffer = useRef<any>({});
+    const heartbeatRef = useRef<any>(null);
+    const mediaRecorderRef = useRef<MediaRecorder|null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingIntervalRef = useRef<any>(null);
 
-    // Sync Ref dengan State PIN
+    // --- EFFECTS ---
+
     useEffect(() => { pinRef.current = accessPin; }, [accessPin]);
+    
+    useEffect(() => { msgEndRef.current?.scrollIntoView({behavior:'smooth'}); }, [messages]);
 
-    // --- 1. INITIALIZATION & URL PARSING ---
+    // DEEP LINKING
     useEffect(() => {
-        // Cek URL params untuk auto-join (Deep Linking Logic)
-        const params = new URLSearchParams(window.location.search);
-        const connectId = params.get('connect');
-        const key = params.get('key');
+        activatePrivacyShield();
+        try {
+            const url = new URL(window.location.href);
+            const connect = url.searchParams.get('connect');
+            const key = url.searchParams.get('key');
+            if (connect && key) {
+                setTargetPeerId(connect);
+                setAccessPin(key);
+                setMode('JOIN');
+                setPendingJoin({ id: connect, pin: key });
+                window.history.replaceState({}, '', window.location.pathname);
+            }
+        } catch(e) {}
+    }, []);
 
-        if (connectId && key) {
-            console.log("[ISTOK_AUTO] Link undangan terdeteksi!");
-            // Bersihkan URL tanpa refresh halaman
-            window.history.replaceState({}, '', window.location.pathname);
-            
-            setTargetPeerId(connectId);
-            setAccessPin(key);
-            setMode('JOIN'); // Pindah UI ke Join
-            
-            // Simpan di antrean, tunggu Peer Ready
-            setPendingJoin({ id: connectId, pin: key });
-        }
+    // PEER INIT (POWERFUL VERSION)
+    useEffect(() => {
+        let mounted = true;
+        if (peerRef.current) return;
 
-        initPeer();
+        const init = async () => {
+            try {
+                // Fetch Powerful Relays
+                setStage('FETCHING_RELAYS');
+                const iceServers = await getIceServers();
+                
+                const { Peer } = await import('peerjs');
+                if (!mounted) return;
 
-        return () => {
-            if (peerRef.current) peerRef.current.destroy();
-            if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+                const peer = new Peer(myProfile.id, {
+                    debug: 1,
+                    secure: true,
+                    config: { iceServers, sdpSemantics: 'unified-plan' },
+                    retry_timer: 1000
+                });
+
+                peer.on('open', () => {
+                    console.log("[ISTOK_NET] Peer Ready:", myProfile.id);
+                    setStage('IDLE');
+                    // Auto-Execute Pending Join
+                    if (pendingJoin) {
+                        setTimeout(() => joinSession(pendingJoin.id, pendingJoin.pin), 500);
+                        setPendingJoin(null);
+                    }
+                });
+
+                peer.on('connection', c => {
+                    c.on('data', d => handleData(d, c));
+                    c.on('close', handleDisconnect);
+                });
+
+                peer.on('call', call => {
+                    if (showCall) { call.close(); return; }
+                    setIncomingCall(call);
+                    playSound('CALL_RING');
+                });
+
+                peer.on('error', err => {
+                    console.warn("Peer Error:", err);
+                    if (err.type === 'peer-unavailable') { setErrorMsg("Target Offline"); setStage('IDLE'); }
+                    else if (err.type === 'disconnected') { peer.reconnect(); }
+                });
+
+                peerRef.current = peer;
+            } catch (e) {
+                console.error("Init Failed", e);
+                setErrorMsg("Net Init Fail");
+            }
+        };
+        init();
+        return () => { 
+            mounted = false; 
+            if(peerRef.current) peerRef.current.destroy(); 
+            clearInterval(heartbeatRef.current);
         };
     }, []);
 
-    // Scroll to bottom
-    useEffect(() => {
-        msgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+    // --- LOGIC: CONNECTION ---
 
-    // --- 2. PEER SETUP ---
-    const initPeer = async () => {
-        if (peerRef.current) return;
+    const joinSession = (id?: string, pin?: string) => {
+        const target = id || targetPeerId;
+        const key = pin || accessPin;
+        if (!target || !key) return;
 
-        const iceServers = await getIceServers();
-        const peer = new Peer(myProfile.id, {
-            config: { iceServers },
-            debug: 1 // Errors only
-        });
-
-        peer.on('open', (id) => {
-            console.log("[ISTOK_NET] Peer Ready:", id);
-            setErrorMsg('');
-            
-            // EXECUTE PENDING JOIN (Logic Baru)
-            if (pendingJoin) {
-                console.log("[ISTOK_AUTO] Mengeksekusi Pending Join...");
-                joinSession(pendingJoin.id, pendingJoin.pin);
-                setPendingJoin(null);
-            }
-        });
-
-        peer.on('connection', (conn) => {
-            handleIncomingConnection(conn);
-        });
-
-        peer.on('call', (call) => {
-            console.log("[ISTOK_NET] Incoming Call...", call.peer);
-            playSound('CALL_RING');
-            setIncomingMediaCall(call);
-        });
-
-        peer.on('error', (err) => {
-            console.error("[ISTOK_ERR]", err);
-            if (err.type === 'peer-unavailable') {
-                setErrorMsg("Target Peer Offline / ID Salah.");
-                setStage('IDLE');
-            } else if (err.type === 'disconnected') {
-                console.warn("Peer disconnected. Reconnecting...");
-                peer.reconnect();
-            } else {
-                setErrorMsg(`Network Error: ${err.type}`);
-            }
-        });
-
-        peerRef.current = peer;
-    };
-
-    // --- 3. CONNECTION LOGIC (Refactored) ---
-    const joinSession = (id: string, pin: string) => {
-        if (!id || !pin) { setErrorMsg("ID dan PIN wajib diisi."); return; }
-
-        // Logic Antrean jika Peer belum siap
         if (!peerRef.current || peerRef.current.disconnected) {
-            console.warn("[ISTOK_NET] Peer not ready, queueing join...");
-            setPendingJoin({ id, pin });
-            if (peerRef.current) peerRef.current.reconnect();
+            peerRef.current?.reconnect();
+            setPendingJoin({id: target, pin: key});
             return;
         }
-
-        if (connRef.current) connRef.current.close();
 
         setStage('LOCATING_PEER');
-        setTargetPeerId(id);
-        setAccessPin(pin);
-        setErrorMsg('');
-
-        console.log(`[ISTOK_NET] Connecting to ${id}...`);
-
-        const conn = peerRef.current.connect(id, {
-            reliable: true,
-            serialization: 'json'
-        });
-
-        // Safety Timeout
-        const timeout = setTimeout(() => {
-            if (stage === 'LOCATING_PEER') {
-                conn.close();
-                setErrorMsg("Koneksi Timeout. Peer mungkin offline.");
-                setStage('IDLE');
-            }
-        }, 8000);
-
-        conn.on('open', () => {
-            clearTimeout(timeout);
-            console.log("[ISTOK_NET] Tunnel Open. Handshaking...");
-            connRef.current = conn;
-            setStage('HANDSHAKE_INIT');
-            
-            // Start Handshake
-            initiateHandshake(conn, pin);
-        });
-
-        conn.on('data', (data: any) => handleData(data, conn));
-        conn.on('close', () => handleDisconnect());
-        conn.on('error', (err: any) => {
-            clearTimeout(timeout);
-            console.error("Conn Error", err);
-            setErrorMsg("Gagal terhubung.");
-            setStage('IDLE');
-        });
-    };
-
-    const initiateHandshake = async (conn: any, pin: string) => {
-        setStage('VERIFYING_KEYS');
-        const payload = JSON.stringify({ type: 'CONNECTION_REQUEST', identity: myProfile.username });
-        const encrypted = await encryptData(payload, pin);
+        const conn = peerRef.current.connect(target, { reliable: true });
         
-        if (encrypted) {
-            conn.send({ type: 'REQ', payload: encrypted });
-        } else {
-            setErrorMsg("Enkripsi Gagal.");
-            conn.close();
-        }
-    };
-
-    const handleIncomingConnection = (conn: any) => {
-        console.log("[ISTOK_NET] Incoming Connection:", conn.peer);
-        conn.on('data', (data: any) => handleData(data, conn));
-        conn.on('close', () => handleDisconnect());
-    };
-
-    // --- 4. DATA HANDLING ---
-    const handleData = async (data: any, conn: any) => {
-        const currentPin = pinRef.current;
-
-        // CHUNKING (Assembly)
-        if (data.type === 'CHUNK') {
-            const { msgId, index, total, data: chunkData } = data;
-            if (!chunkBuffer.current[msgId]) chunkBuffer.current[msgId] = { chunks: new Array(total), count: 0, total };
-            const buffer = chunkBuffer.current[msgId];
-            if (!buffer.chunks[index]) {
-                buffer.chunks[index] = chunkData;
-                buffer.count++;
+        conn.on('open', async () => {
+            setStage('VERIFYING_KEYS');
+            connRef.current = conn;
+            const payload = JSON.stringify({ type: 'CONNECTION_REQUEST', identity: myProfile.username });
+            const encrypted = await encryptData(payload, key);
+            
+            if (encrypted) {
+                conn.send({ type: 'REQ', payload: encrypted });
+                setStage('AWAITING_APPROVAL');
+            } else {
+                conn.close();
+                setErrorMsg("Encryption Failed");
             }
-            if (buffer.count === buffer.total) {
-                const fullPayload = buffer.chunks.join('');
-                delete chunkBuffer.current[msgId];
-                handleData({ type: 'MSG', payload: fullPayload }, conn);
+        });
+
+        conn.on('data', (d: any) => handleData(d));
+        conn.on('close', handleDisconnect);
+        conn.on('error', () => { setStage('IDLE'); setErrorMsg("Conn Error"); });
+    };
+
+    const handleData = async (data: any, incomingConn?: any) => {
+        // CHUNK REASSEMBLY
+        if (data.type === 'CHUNK') {
+            const { id, idx, total, chunk } = data;
+            if(!chunkBuffer.current[id]) chunkBuffer.current[id] = { chunks: new Array(total), count:0, total };
+            const buf = chunkBuffer.current[id];
+            if(!buf.chunks[idx]) {
+                buf.chunks[idx] = chunk;
+                buf.count++;
+            }
+            if(buf.count === total) {
+                const full = buf.chunks.join('');
+                delete chunkBuffer.current[id];
+                handleData({type:'MSG', payload: full}, incomingConn);
             }
             return;
         }
 
-        // PROTOCOLS
+        const currentPin = pinRef.current;
+
+        // PROTOCOL
         if (data.type === 'REQ') {
             const json = await decryptData(data.payload, currentPin);
             if (json) {
                 const req = JSON.parse(json);
                 if (req.type === 'CONNECTION_REQUEST') {
-                    setIncomingRequest({ peerId: conn.peer, identity: req.identity, conn });
+                    setIncomingRequest({ peerId: incomingConn.peer, identity: req.identity, conn: incomingConn });
                     playSound('MSG_IN');
                 }
-            } else {
-                console.warn("Decrypt failed. Wrong PIN.");
-                conn.send({ type: 'AUTH_FAIL' }); // Beritahu pengirim
             }
         }
         else if (data.type === 'RESP') {
@@ -385,322 +466,315 @@ export const IStokView: React.FC = () => {
                     setStage('SECURE');
                     setMode('CHAT');
                     setIsPeerOnline(true);
-                    playSound('CONNECT');
                     startHeartbeat();
+                    playSound('CONNECT');
+                    
                     // Save Session
-                    saveSession(conn.peer, res.identity, currentPin);
+                    setSessions(prev => {
+                        const exists = prev.find(s => s.id === connRef.current.peer);
+                        const newSess: IStokSession = {
+                            id: connRef.current.peer,
+                            name: res.identity,
+                            lastSeen: Date.now(),
+                            status: 'ONLINE',
+                            pin: currentPin,
+                            createdAt: Date.now()
+                        };
+                        if (exists) return prev.map(s => s.id === newSess.id ? newSess : s);
+                        return [...prev, newSess];
+                    });
                 }
             }
-        }
-        else if (data.type === 'AUTH_FAIL') {
-            setErrorMsg("PIN SALAH. Akses ditolak.");
-            setStage('IDLE');
-            conn.close();
         }
         else if (data.type === 'MSG') {
             const json = await decryptData(data.payload, currentPin);
             if (json) {
                 const msg = JSON.parse(json);
-                msg.sender = 'THEM';
-                setMessages(prev => [...prev, msg]);
+                setMessages(p => [...p, { ...msg, sender: 'THEM', status: 'READ' }]);
                 playSound('MSG_IN');
+                if(!document.hasFocus()) setLatestNotif({sender: 'Peer', text: msg.type});
             }
         }
-        else if (data.type === 'PING') { conn.send({ type: 'PONG' }); }
-        else if (data.type === 'PONG') { /* Alive */ }
-        else if (data.type === 'CALL_SIGNAL') { /* Pre-call wake up */ }
+        else if (data.type === 'PING') { /* Heartbeat Ack */ }
+        else if (data.type === 'SIGNAL' && data.action === 'BUZZ') { triggerHaptic([100,50,100]); playSound('BUZZ'); }
     };
 
-    const saveSession = (id: string, name: string, pin: string) => {
-        const now = Date.now();
-        setSessions(prev => {
-            if (prev.find(s => s.id === id)) return prev.map(s => s.id === id ? {...s, lastSeen: now, status: 'ONLINE', name} : s);
-            return [...prev, { id, name, lastSeen: now, status: 'ONLINE', pin, createdAt: now }];
-        });
-    };
-
-    const acceptRequest = async () => {
-        if (!incomingRequest) return;
-        setIsHandshaking(true);
+    // --- LOGIC: OMNI RACE AI (NEW) ---
+    const handleAiAssist = async (currentText: string, setTextCallback: (t: string) => void) => {
+        setIsAiThinking(true);
+        playSound('AI_THINK');
         
-        const currentPin = pinRef.current;
-        const payload = JSON.stringify({ type: 'CONNECTION_ACCEPT', identity: myProfile.username });
-        const encrypted = await encryptData(payload, currentPin);
-        
-        if (encrypted && incomingRequest.conn) {
-            incomingRequest.conn.send({ type: 'RESP', payload: encrypted });
-            
-            connRef.current = incomingRequest.conn;
-            setTargetPeerId(incomingRequest.peerId);
-            setMode('CHAT');
-            setStage('SECURE');
-            setIsPeerOnline(true);
-            startHeartbeat();
-            saveSession(incomingRequest.peerId, incomingRequest.identity, currentPin);
-            setIncomingRequest(null);
-        }
-        setIsHandshaking(false);
-    };
+        // Context: Last 5 messages
+        const context = messages.slice(-5).map(m => `${m.sender}: ${m.content}`).join('\n');
+        const prompt = currentText ? 
+            `Draft a continuation or reply for: "${currentText}". Context:\n${context}` : 
+            `Suggest a reply to the last message. Context:\n${context}`;
 
-    const startHeartbeat = () => {
-        if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-        heartbeatRef.current = setInterval(() => {
-            if (connRef.current && connRef.current.open) {
-                connRef.current.send({ type: 'PING' });
-            }
-        }, HEARTBEAT_INTERVAL);
-    };
-
-    const handleDisconnect = () => {
-        setIsPeerOnline(false);
-        if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-        if (mode === 'CHAT') {
-            // Jangan langsung error, beri indikasi reconnecting visual
-        }
-    };
-
-    // --- 5. MESSAGING & MEDIA ---
-    const sendMessage = async (type: string, content: string, extra: any = {}) => {
-        if (!connRef.current) return;
-        
-        const msg: Message = {
-            id: uuidv4(),
-            sender: 'ME',
-            type: type as any,
-            content,
-            timestamp: Date.now(),
-            status: 'PENDING',
-            ...extra
-        };
-
-        setMessages(prev => [...prev, msg]);
-
-        const payload = JSON.stringify(msg);
-        const encrypted = await encryptData(payload, pinRef.current);
-
-        if (encrypted) {
-            if (encrypted.length > CHUNK_SIZE) {
-                // Chunking
-                const chunks = [];
-                for(let i=0; i<encrypted.length; i+=CHUNK_SIZE) chunks.push(encrypted.slice(i, i+CHUNK_SIZE));
-                chunks.forEach((chunk, idx) => {
-                    connRef.current.send({ type: 'CHUNK', msgId: msg.id, index: idx, total: chunks.length, data: chunk });
-                });
-            } else {
-                connRef.current.send({ type: 'MSG', payload: encrypted });
-            }
-            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'SENT' } : m));
-            playSound('MSG_OUT');
-        }
-    };
-
-    // Recording Logic
-    const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mimeType = getSupportedMimeType() || 'audio/webm';
-            const recorder = new MediaRecorder(stream, { mimeType });
-            mediaRecorderRef.current = recorder;
-            audioChunksRef.current = [];
-
-            recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-            recorder.start();
-            setIsRecording(true);
-            setRecordingTime(0);
-            recordingIntervalRef.current = setInterval(() => setRecordingTime(p => p+1), 1000);
-        } catch (e) { alert("Mic Error"); }
-    };
-
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && isRecording) {
-            mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(audioChunksRef.current, { type: mediaRecorderRef.current?.mimeType });
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64 = (reader.result as string).split(',')[1];
-                    sendMessage('AUDIO', base64, { duration: recordingTime, size: blob.size, mimeType: mediaRecorderRef.current?.mimeType });
-                };
-                reader.readAsDataURL(blob);
-                mediaRecorderRef.current?.stream.getTracks().forEach(t => t.stop());
-            };
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-            clearInterval(recordingIntervalRef.current);
+            // Using OMNI_KERNEL from service to race Gemini/Groq/OpenAI
+            const stream = OMNI_KERNEL.raceStream(prompt, "You are a helpful, brief chat assistant. Respond in Indonesian (Bahasa Gaul/Santai).");
+            
+            let fullDraft = '';
+            for await (const chunk of stream) {
+                if (chunk.text) {
+                    fullDraft += chunk.text;
+                    setTextCallback(fullDraft); // Realtime typing effect in input
+                }
+            }
+        } catch (e) {
+            console.error("AI Race Failed", e);
+            setErrorMsg("AI Offline");
+        } finally {
+            setIsAiThinking(false);
         }
     };
 
-    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        if (file.type.startsWith('image/')) {
-            const { base64, size, mimeType } = await compressImage(file);
-            sendMessage('IMAGE', base64, { size, mimeType });
+    // --- LOGIC: SENDING ---
+    const sendMessage = async (type: string, content: string, extras = {}) => {
+        if (!connRef.current) return;
+        const msgId = crypto.randomUUID();
+        const timestamp = Date.now();
+        const payloadObj = { id: msgId, type, content, timestamp, ttl: ttlMode, ...extras };
+        
+        const encrypted = await encryptData(JSON.stringify(payloadObj), pinRef.current);
+        if (!encrypted) return;
+
+        // Smart Chunking
+        if (encrypted.length > CHUNK_SIZE) {
+            const id = crypto.randomUUID();
+            const total = Math.ceil(encrypted.length / CHUNK_SIZE);
+            for(let i=0; i<total; i++) {
+                connRef.current.send({
+                    type: 'CHUNK', id, idx: i, total, 
+                    chunk: encrypted.slice(i*CHUNK_SIZE, (i+1)*CHUNK_SIZE)
+                });
+            }
         } else {
-            const reader = new FileReader();
-            reader.onload = () => sendMessage('FILE', (reader.result as string).split(',')[1], { fileName: file.name, size: file.size });
-            reader.readAsDataURL(file);
+            connRef.current.send({ type: 'MSG', payload: encrypted });
         }
-        e.target.value = ''; // Reset input
+
+        setMessages(p => [...p, { ...payloadObj, sender: 'ME', status: 'SENT' } as Message]);
+        playSound('MSG_OUT');
     };
 
     // --- RENDER ---
     
-    // 1. Calling View
-    if (activeTeleponan) {
-        return <TeleponanView onClose={()=>setActiveTeleponan(false)} existingPeer={peerRef.current} initialTargetId={outgoingCallTarget || undefined} incomingCall={incomingMediaCall} />;
+    if (mode === 'SELECT') {
+        return (
+            <div className="h-[100dvh] bg-[#050505] flex flex-col items-center justify-center p-6 relative font-sans overflow-hidden">
+                {/* Background Decor */}
+                <div className="absolute top-[-20%] left-[-20%] w-[50%] h-[50%] bg-emerald-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+                
+                {incomingRequest && (
+                    <ConnectionNotification 
+                        identity={incomingRequest.identity} 
+                        peerId={incomingRequest.peerId} 
+                        onAccept={async () => {
+                            // Accept Logic
+                            const { conn, identity } = incomingRequest;
+                            connRef.current = conn;
+                            const payload = JSON.stringify({ type: 'CONNECTION_ACCEPT', identity: myProfile.username });
+                            const enc = await encryptData(payload, pinRef.current);
+                            if(enc) conn.send({type: 'RESP', payload: enc});
+                            setStage('SECURE'); setMode('CHAT'); setIncomingRequest(null);
+                            startHeartbeat();
+                        }} 
+                        onDecline={()=>{ setIncomingRequest(null); }} 
+                    />
+                )}
+
+                <div className="text-center z-10 space-y-2 mb-10">
+                    <h1 className="text-5xl font-black text-white italic tracking-tighter drop-shadow-lg">IStoic <span className="text-emerald-500">P2P</span></h1>
+                    <div className="flex items-center justify-center gap-2">
+                        <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[9px] font-bold rounded border border-emerald-500/20">V3.0 HYBRID</span>
+                        <span className="px-2 py-0.5 bg-purple-500/10 text-purple-500 text-[9px] font-bold rounded border border-purple-500/20">OMNI-AI</span>
+                    </div>
+                </div>
+
+                <div className="grid gap-4 w-full max-w-xs z-10">
+                    <button onClick={()=>{setAccessPin(Math.floor(100000+Math.random()*900000).toString()); setMode('HOST');}} className="group relative p-5 bg-[#09090b] border border-white/10 hover:border-emerald-500/50 rounded-2xl flex items-center gap-4 transition-all overflow-hidden">
+                        <div className="absolute inset-0 bg-emerald-500/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                        <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500 relative"><Server size={24}/></div>
+                        <div className="text-left relative">
+                            <h3 className="text-white font-bold tracking-wide">HOST SECURE</h3>
+                            <p className="text-[10px] text-neutral-500">Create Encrypted Room</p>
+                        </div>
+                    </button>
+
+                    <button onClick={()=>setMode('JOIN')} className="group relative p-5 bg-[#09090b] border border-white/10 hover:border-blue-500/50 rounded-2xl flex items-center gap-4 transition-all overflow-hidden">
+                        <div className="absolute inset-0 bg-blue-500/5 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                        <div className="p-3 bg-blue-500/10 rounded-xl text-blue-500 relative"><ScanLine size={24}/></div>
+                        <div className="text-left relative">
+                            <h3 className="text-white font-bold tracking-wide">JOIN TARGET</h3>
+                            <p className="text-[10px] text-neutral-500">Connect via ID / QR</p>
+                        </div>
+                    </button>
+                    
+                    <button onClick={()=>setShowSidebar(true)} className="p-4 text-neutral-500 hover:text-white text-xs font-bold tracking-widest flex items-center justify-center gap-2">
+                        <Menu size={14}/> CONTACTS
+                    </button>
+                </div>
+
+                <SidebarIStokContact 
+                    isOpen={showSidebar} onClose={()=>setShowSidebar(false)} sessions={sessions} 
+                    onSelect={(s)=>{ setTargetPeerId(s.id); setAccessPin(s.pin); joinSession(s.id, s.pin); setShowSidebar(false); }}
+                />
+            </div>
+        );
     }
 
-    // 2. Main View
-    return (
-        <div className="h-[100dvh] w-full bg-[#050505] flex flex-col font-sans relative overflow-hidden">
-            {/* GLOBAL OVERLAYS */}
-            {incomingMediaCall && (
-                <CallNotification 
-                    identity={incomingMediaCall.peer} 
-                    onAnswer={()=>{setIncomingMediaCall(null); setActiveTeleponan(true);}} 
-                    onDecline={()=>{incomingMediaCall.close(); setIncomingMediaCall(null);}} 
-                />
-            )}
-
-            {incomingRequest && (
-                <ConnectionNotification 
-                    identity={incomingRequest.identity} 
-                    peerId={incomingRequest.peerId} 
-                    onAccept={acceptRequest} 
-                    onDecline={() => setIncomingRequest(null)}
-                    isProcessing={isHandshaking}
-                />
-            )}
-
-            {viewImage && (
-                <div className="fixed inset-0 z-[10000] bg-black flex items-center justify-center p-4">
-                    <button onClick={()=>setViewImage(null)} className="absolute top-6 right-6 p-3 bg-white/20 rounded-full text-white"><X/></button>
-                    <img src={viewImage} className="max-w-full max-h-full rounded-lg" />
-                </div>
-            )}
-
-            {showWalkieTalkie && (
-                 <IStokWalkieTalkie 
-                    onClose={() => setShowWalkieTalkie(false)} 
-                    onSendAudio={(b64, dur, size) => sendMessage('AUDIO', b64, { duration: dur, size, mimeType: 'audio/webm' })}
-                    latestMessage={null}
-                 />
-            )}
-
-            {/* SIDEBAR */}
-            <SidebarIStokContact 
-                isOpen={showContactSidebar}
-                onClose={() => setShowContactSidebar(false)}
-                sessions={sessions}
-                profile={myProfile}
-                onSelect={(s) => { setTargetPeerId(s.id); setAccessPin(s.pin); joinSession(s.id, s.pin); setShowContactSidebar(false); }}
-                onCallContact={(c) => { 
-                    const s = sessions.find(sess => sess.id === c.id);
-                    if(s) { setTargetPeerId(s.id); setAccessPin(s.pin); joinSession(s.id, s.pin); setShowContactSidebar(false); }
-                }}
-                onRenameSession={()=>{}} onDeleteSession={()=>{}} onRegenerateProfile={()=>{}} currentPeerId={null}
-            />
-
-            {/* MODE: CHAT */}
-            {mode === 'CHAT' ? (
-                <>
-                    <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center bg-[#09090b]/80 backdrop-blur-md pt-[calc(env(safe-area-inset-top)+1rem)]">
-                        <div className="flex items-center gap-3">
-                            <button onClick={()=>{setMode('SELECT'); if(connRef.current) connRef.current.close();}} className="text-neutral-400 hover:text-white"><ArrowLeft size={20}/></button>
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <div className={`w-2 h-2 rounded-full ${isPeerOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-                                    <h3 className="text-white font-bold text-sm truncate max-w-[150px]">{sessions.find(s=>s.id===targetPeerId)?.name || targetPeerId}</h3>
-                                </div>
-                                <p className="text-[9px] text-neutral-500 font-mono mt-0.5">{isPeerOnline ? 'SECURE_CHANNEL_ACTIVE' : 'OFFLINE'}</p>
-                            </div>
+    if (mode === 'HOST' || mode === 'JOIN') {
+        return (
+            <div className="h-[100dvh] bg-black flex flex-col items-center justify-center p-6 relative">
+                <button onClick={()=>{setMode('SELECT'); setStage('IDLE');}} className="absolute top-6 left-6 text-neutral-500 hover:text-white flex items-center gap-2 text-xs font-bold"><ArrowLeft size={16}/> ABORT</button>
+                
+                {mode === 'HOST' ? (
+                    <div className="w-full max-w-sm bg-[#09090b] border border-white/10 p-8 rounded-[32px] text-center space-y-6 animate-slide-up">
+                        <div className="relative inline-flex">
+                            <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-20 animate-pulse"></div>
+                            <Server className="text-emerald-500 relative z-10" size={48} />
                         </div>
-                        <div className="flex gap-2">
-                            {isPeerOnline && <button onClick={()=>{connRef.current.send({type:'CALL_SIGNAL'}); setOutgoingCallTarget(targetPeerId); setActiveTeleponan(true);}} className="p-2 bg-emerald-500/10 text-emerald-500 rounded-full"><Phone size={18}/></button>}
-                            <button onClick={()=>setMessages([])} className="p-2 text-neutral-500 hover:text-red-500"><Skull size={18}/></button>
+                        <div>
+                            <p className="text-[10px] text-neutral-500 font-mono mb-2">SIGNAL ID</p>
+                            <code className="block bg-black p-3 rounded-lg border border-white/10 text-emerald-500 text-xs font-mono break-all select-all">{myProfile.id}</code>
                         </div>
+                        <div>
+                            <p className="text-[10px] text-neutral-500 font-mono mb-2">ACCESS PIN</p>
+                            <div className="text-3xl font-black text-white tracking-[0.5em]">{accessPin}</div>
+                        </div>
+                        <button onClick={()=>setShowShare(true)} className="w-full py-3 bg-white/5 hover:bg-white/10 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-2 border border-white/5"><QrCode size={14}/> SHOW QR</button>
                     </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scroll">
-                        {messages.map(msg => (
-                            <MessageBubble key={msg.id} msg={msg} setViewImage={setViewImage} />
-                        ))}
-                        <div ref={msgEndRef} />
-                        {!isPeerOnline && (
-                            <div className="flex justify-center py-4"><span className="bg-red-500/10 text-red-500 text-[10px] px-3 py-1 rounded-full flex gap-2 items-center font-bold"><WifiOff size={12}/> RECONNECTING...</span></div>
+                ) : (
+                    <div className="w-full max-w-sm space-y-4 animate-slide-up">
+                        <div className="text-center mb-8">
+                            <ScanLine className="text-blue-500 mx-auto mb-4" size={40}/>
+                            <h2 className="text-xl font-bold text-white">ESTABLISH UPLINK</h2>
+                            <p className="text-xs text-neutral-500">{stage === 'IDLE' ? 'Enter Credentials' : stage}</p>
+                        </div>
+                        {stage === 'IDLE' ? (
+                            <>
+                                <input value={targetPeerId} onChange={e=>setTargetPeerId(e.target.value)} placeholder="TARGET ID" className="w-full bg-[#09090b] p-4 rounded-xl text-white border border-white/10 outline-none text-center font-mono focus:border-blue-500 transition-colors"/>
+                                <input value={accessPin} onChange={e=>setAccessPin(e.target.value)} placeholder="PIN" className="w-full bg-[#09090b] p-4 rounded-xl text-white border border-white/10 outline-none text-center font-mono tracking-widest focus:border-blue-500 transition-colors"/>
+                                <button onClick={()=>joinSession()} className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20">CONNECT</button>
+                            </>
+                        ) : (
+                            <div className="flex justify-center"><div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div></div>
                         )}
+                        {errorMsg && <div className="text-red-500 text-xs text-center font-mono bg-red-500/10 p-2 rounded">{errorMsg}</div>}
                     </div>
+                )}
+                {showShare && <ShareConnection peerId={myProfile.id} pin={accessPin} onClose={()=>setShowShare(false)}/>}
+            </div>
+        );
+    }
 
-                    <IStokInput 
-                        onSend={(t:string)=>sendMessage('TEXT', t)} 
-                        onTyping={()=>{}} 
-                        disabled={!isPeerOnline}
-                        isRecording={isRecording} recordingTime={recordingTime}
-                        onStartRecord={startRecording} onStopRecord={stopRecording}
-                        onAttach={()=>fileInputRef.current?.click()} onTogglePTT={()=>setShowWalkieTalkie(true)}
-                    />
-                    <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
-                </>
-            ) : (
-                /* MODE: SETUP (HOST/JOIN) */
-                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-                    {mode === 'SELECT' && (
-                        <div className="space-y-6 w-full max-w-sm">
-                            <h1 className="text-4xl font-black text-white italic tracking-tighter">IStoic <span className="text-emerald-500">NET</span></h1>
-                            <div className="grid gap-4">
-                                <button onClick={()=>{setAccessPin(Math.floor(100000+Math.random()*900000).toString()); setMode('HOST');}} className="p-5 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4 hover:bg-white/10 transition group">
-                                    <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500"><Server size={24}/></div>
-                                    <div className="text-left"><div className="text-white font-bold">HOST SESSION</div><p className="text-[10px] text-neutral-500">Create Secure Room</p></div>
-                                </button>
-                                <button onClick={()=>setMode('JOIN')} className="p-5 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4 hover:bg-white/10 transition group">
-                                    <div className="p-3 bg-blue-500/10 rounded-xl text-blue-500"><ScanLine size={24}/></div>
-                                    <div className="text-left"><div className="text-white font-bold">JOIN SESSION</div><p className="text-[10px] text-neutral-500">Connect via ID / QR</p></div>
-                                </button>
-                                <button onClick={()=>setShowContactSidebar(true)} className="p-5 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-4 hover:bg-white/10 transition group">
-                                    <div className="p-3 bg-purple-500/10 rounded-xl text-purple-500"><Users size={24}/></div>
-                                    <div className="text-left"><div className="text-white font-bold">CONTACTS</div><p className="text-[10px] text-neutral-500">Saved Peers</p></div>
-                                </button>
-                            </div>
-                        </div>
-                    )}
+    // CHAT MODE
+    return (
+        <div className="h-[100dvh] bg-[#050505] flex flex-col font-sans relative">
+            {/* OVERLAYS */}
+            {viewImage && <div className="fixed inset-0 z-[50] bg-black/95 flex items-center justify-center p-4" onClick={()=>setViewImage(null)}><img src={viewImage} className="max-w-full max-h-full rounded shadow-2xl"/></div>}
+            
+            {incomingCall && !showCall && <CallNotification identity={incomingCall.peer} onAnswer={()=>{setShowCall(true)}} onDecline={()=>{incomingCall.close(); setIncomingCall(null);}} />}
+            
+            {showCall && <TeleponanView onClose={()=>{setShowCall(false); setIncomingCall(null);}} existingPeer={peerRef.current} initialTargetId={targetPeerId} incomingCall={incomingCall} secretPin={pinRef.current}/>}
 
-                    {mode === 'HOST' && (
-                        <div className="w-full max-w-sm space-y-6 animate-fade-in relative">
-                            <button onClick={()=>setMode('SELECT')} className="absolute -top-12 left-0 text-neutral-500 flex items-center gap-2"><ArrowLeft size={16}/> BACK</button>
-                            <div className="bg-[#09090b] border border-white/10 p-8 rounded-[32px] space-y-6">
-                                <Server className="text-emerald-500 mx-auto" size={40}/>
-                                <div>
-                                    <p className="text-[9px] text-neutral-500 mb-1 font-mono">SIGNAL ID</p>
-                                    <code className="bg-black border border-white/10 p-3 rounded-lg text-emerald-500 block text-xs select-all break-all">{myProfile.id}</code>
-                                </div>
-                                <div>
-                                    <p className="text-[9px] text-neutral-500 mb-1 font-mono">SECURE PIN</p>
-                                    <div className="text-3xl font-black text-white tracking-[0.5em]">{accessPin}</div>
-                                </div>
-                                <button onClick={()=>setShowShare(true)} className="w-full py-3 bg-white/10 rounded-xl text-white font-bold text-xs hover:bg-white/20">SHOW QR CODE</button>
-                            </div>
-                            {showShare && <ShareConnection peerId={myProfile.id} pin={accessPin} onClose={()=>setShowShare(false)} />}
-                        </div>
-                    )}
-
-                    {mode === 'JOIN' && (
-                        <IStokAuth 
-                            identity={myProfile.username}
-                            onRegenerateIdentity={()=>{}}
-                            onHost={()=>{}}
-                            onJoin={(id, pin) => joinSession(id, pin)}
-                            errorMsg={errorMsg}
-                            onErrorClear={()=>setErrorMsg('')}
-                            isRelayActive={false}
-                            forcedMode="JOIN"
-                            connectionStage={stage}
-                        />
-                    )}
-                    
-                    {/* Tombol Back untuk JOIN mode handled inside IStokAuth or via global abort */}
-                    {mode === 'JOIN' && <button onClick={()=>{setMode('SELECT'); setStage('IDLE');}} className="fixed top-6 left-6 text-neutral-500 text-xs font-bold z-50">ABORT</button>}
+            {/* HEADER */}
+            <div className="px-6 py-4 border-b border-white/10 flex justify-between items-center bg-[#09090b] z-20 pt-[calc(env(safe-area-inset-top)+1rem)]">
+                <div className="flex items-center gap-3">
+                    <button onClick={()=>{connRef.current?.close(); setMode('SELECT'); setMessages([]);}} className="text-neutral-400 hover:text-white"><ArrowLeft size={20}/></button>
+                    <div className={`w-2.5 h-2.5 rounded-full ${isPeerOnline ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-red-500'}`}></div>
+                    <div>
+                        <h1 className="text-xs font-black text-white tracking-widest">SECURE_LINK</h1>
+                        <span className="text-[8px] text-neutral-500 font-mono uppercase">{stage}</span>
+                    </div>
                 </div>
-            )}
+                <div className="flex gap-3">
+                    <button onClick={()=>{connRef.current?.send({type:'SIGNAL', action:'BUZZ'}); triggerHaptic(50);}} className="text-yellow-500 hover:text-yellow-400"><Zap size={18}/></button>
+                    <button onClick={()=>setShowCall(true)} className="text-emerald-500 hover:text-emerald-400"><PhoneCall size={18}/></button>
+                </div>
+            </div>
+
+            {/* MESSAGES */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scroll bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-95">
+                {messages.map(m => (
+                    <MessageBubble key={m.id} msg={m} setViewImage={setViewImage} onBurn={(id)=>setMessages(p=>p.filter(x=>x.id!==id))} />
+                ))}
+                {!isPeerOnline && <div className="flex justify-center mt-4"><span className="bg-red-500/20 text-red-500 text-[10px] px-3 py-1 rounded-full flex items-center gap-2"><WifiOff size={10}/> RECONNECTING...</span></div>}
+                <div ref={msgEndRef} />
+            </div>
+
+            {/* INPUT */}
+            <IStokInput 
+                onSend={(t:string)=>sendMessage('TEXT', t)}
+                onTyping={()=>{}}
+                disabled={!isPeerOnline}
+                isRecording={isRecording}
+                recordingTime={recordingTime}
+                isVoiceMasked={isVoiceMasked}
+                onToggleMask={()=>setIsVoiceMasked(!isVoiceMasked)}
+                onStartRecord={async ()=>{
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+                        const recorder = new MediaRecorder(stream);
+                        mediaRecorderRef.current = recorder;
+                        audioChunksRef.current = [];
+                        recorder.ondataavailable = e => audioChunksRef.current.push(e.data);
+                        recorder.start();
+                        setIsRecording(true);
+                        setRecordingTime(0);
+                        recordingIntervalRef.current = setInterval(()=>setRecordingTime(p=>p+1),1000);
+                    } catch(e) { alert("Mic Error"); }
+                }}
+                onStopRecord={()=>{
+                    if(mediaRecorderRef.current && isRecording) {
+                        mediaRecorderRef.current.stop();
+                        mediaRecorderRef.current.onstop = () => {
+                            const blob = new Blob(audioChunksRef.current, {type:'audio/webm'});
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const b64 = (reader.result as string).split(',')[1];
+                                sendMessage('AUDIO', b64, {duration:recordingTime, isMasked:isVoiceMasked});
+                            };
+                            reader.readAsDataURL(blob);
+                            setIsRecording(false);
+                            clearInterval(recordingIntervalRef.current);
+                        };
+                    }
+                }}
+                onAttach={()=>fileInputRef.current?.click()}
+                ttlMode={ttlMode}
+                onToggleTtl={()=>setTtlMode(p => p===0 ? 10 : (p===10 ? 60 : 0))}
+                onAiAssist={handleAiAssist}
+                isAiThinking={isAiThinking}
+            />
+            <input type="file" ref={fileInputRef} className="hidden" onChange={(e)=>{
+                const f = e.target.files?.[0];
+                if(!f) return;
+                const r = new FileReader();
+                r.onload = async (ev) => {
+                    const res = ev.target?.result as string;
+                    if(f.type.startsWith('image/')) {
+                        const cmp = await compressImage(f);
+                        sendMessage('IMAGE', cmp.base64.split(',')[1], {size:cmp.size});
+                    } else {
+                        sendMessage('FILE', res.split(',')[1], {fileName:f.name, size:f.size, mimeType:f.type});
+                    }
+                };
+                r.readAsDataURL(f);
+            }}/>
+
+            const startHeartbeat = () => {
+                if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+                heartbeatRef.current = setInterval(() => {
+                    if (!connRef.current?.open) setIsPeerOnline(false);
+                    else setIsPeerOnline(true); 
+                }, HEARTBEAT_MS);
+            };
+
+            const handleDisconnect = () => {
+                setIsPeerOnline(false);
+                setStage('RECONNECTING');
+            };
         </div>
     );
 };
