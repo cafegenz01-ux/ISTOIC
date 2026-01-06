@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 
+=======
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     encryptData, decryptData
@@ -11,7 +14,11 @@ import {
     QrCode, Lock, Flame, 
     ShieldAlert, ArrowLeft, BrainCircuit, Sparkles,
     Wifi, WifiOff, Paperclip, Camera, Globe, Languages, Check,
+<<<<<<< HEAD
     Activity, Signal, Radio, Loader2, User
+=======
+    Activity, Signal, Radio
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
 } from 'lucide-react';
 
 // --- HOOKS & SERVICES ---
@@ -24,8 +31,12 @@ import { CallNotification } from './components/CallNotification';
 import { MessageBubble } from './components/MessageBubble'; 
 import { QRScanner } from './components/QRScanner'; 
 import { compressImage } from './components/gambar';
+<<<<<<< HEAD
 import { IStokWalkieTalkie } from './components/IStokWalkieTalkie'; 
 import { MediaDrawer } from './components/MediaDrawer';
+=======
+// import { AudioMessagePlayer } from './components/vn'; // Uncomment jika sudah ada filenya
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
 
 // --- HYDRA CONSTANTS ---
 const CHUNK_SIZE = 65536; // 64KB Chunks for 5G/WiFi6 Optimization
@@ -132,7 +143,11 @@ const getHydraIceServers = async (): Promise<any[]> => {
     ];
 
     try {
+<<<<<<< HEAD
         const apiKey = (import.meta as any).env.VITE_METERED_API_KEY;
+=======
+        const apiKey = import.meta.env.VITE_METERED_API_KEY;
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
         if (!apiKey) {
             console.warn("[HYDRA] No Metered API Key found. Fallback to STUN only.");
             return baseStun;
@@ -310,8 +325,11 @@ export const IStokView: React.FC = () => {
     const [showCall, setShowCall] = useState(false);
     const [viewImage, setViewImage] = useState<string|null>(null);
     const [showScanner, setShowScanner] = useState(false);
+<<<<<<< HEAD
     const [showWalkieTalkie, setShowWalkieTalkie] = useState(false);
     const [showMediaDrawer, setShowMediaDrawer] = useState(false);
+=======
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
     
     // CHAT & MEDIA
     const [messages, setMessages] = useState<Message[]>([]);
@@ -338,6 +356,12 @@ export const IStokView: React.FC = () => {
     const chunkBuffer = useRef<any>({});
     const heartbeatRef = useRef<any>(null);
     const reconnectAttemptsRef = useRef(0);
+<<<<<<< HEAD
+=======
+    const mediaRecorderRef = useRef<MediaRecorder|null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const recordingIntervalRef = useRef<any>(null);
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
     
     // --- NETWORK LISTENER (HYDRA SENSE) ---
     useEffect(() => {
@@ -511,11 +535,19 @@ export const IStokView: React.FC = () => {
                     config: { 
                         iceServers, 
                         sdpSemantics: 'unified-plan', 
+<<<<<<< HEAD
                         iceCandidatePoolSize: 10, 
                         iceTransportPolicy: 'all' 
                     },
                     retry_timer: 500
                 } as any);
+=======
+                        iceCandidatePoolSize: 10,
+                        iceTransportPolicy: 'all' 
+                    },
+                    retry_timer: 500
+                });
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
 
                 peer.on('open', () => {
                     console.log("[HYDRA] Node Active:", myProfile.id);
@@ -642,6 +674,10 @@ export const IStokView: React.FC = () => {
         setIsAiThinking(true);
         playSound('AI_THINK');
         
+<<<<<<< HEAD
+=======
+        // Mengambil 10 Pesan Terakhir untuk konteks yang lebih dalam
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
         const context = messages.slice(-10).map(m => `[${m.sender}]: ${m.content}`).join('\n');
         
         let prompt = "";
@@ -662,6 +698,10 @@ export const IStokView: React.FC = () => {
                     }
                 }
             } else {
+<<<<<<< HEAD
+=======
+               // Fallback cerdas jika Kernel Offline atau lambat
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
                setTimeout(() => {
                    const fallbacks = [
                        "Acknowledged. Proceeding.",
@@ -872,6 +912,7 @@ export const IStokView: React.FC = () => {
                                 </>
                             ) : (
                                 <div className="flex flex-col items-center justify-center space-y-4">
+<<<<<<< HEAD
                                     <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
                                     <p className="text-blue-500 text-xs font-bold animate-pulse uppercase tracking-widest">{stage.replace('_', ' ')}...</p>
                                 </div>
@@ -1033,3 +1074,6 @@ export const IStokView: React.FC = () => {
         </>
     );
 };
+=======
+                                    <div className="w-12 h-12 border-4 border-blue-500/30 border-t
+>>>>>>> cba0f26f110ed36eac3dba75de5717bb2dde361b
