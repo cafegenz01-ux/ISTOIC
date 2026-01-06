@@ -46,8 +46,26 @@ export const IstokIdentityService = {
                 } as IStokUserIdentity;
             }
         } catch (error: any) {
-            debugService.log('ERROR', 'ISTOK_AUTH', 'LOGIN_FAIL', error.message);
-            alert(`Login Gagal: ${error.message}`);
+            const errCode = error.code || '';
+            const errMsg = error.message || '';
+
+            // Handle User Cancellation Gracefully
+            if (errCode === 'auth/popup-closed-by-user' || errMsg.includes('closed-by-user')) {
+                console.log("Login cancelled by user.");
+                return null;
+            }
+
+            debugService.log('ERROR', 'ISTOK_AUTH', 'LOGIN_FAIL', errMsg);
+            
+            // Handle Unauthorized Domain (Common Dev Error)
+            let friendlyMsg = errMsg;
+            if (errCode === 'auth/unauthorized-domain' || errMsg.includes('unauthorized-domain')) {
+                friendlyMsg = "Domain ini belum diizinkan. Tambahkan domain ini ke Firebase Console > Authentication > Settings > Authorized Domains.";
+            } else if (errCode === 'auth/popup-blocked') {
+                friendlyMsg = "Popup login diblokir oleh browser. Izinkan popup untuk situs ini.";
+            }
+
+            alert(`Login Gagal: ${friendlyMsg}`);
             return null;
         }
     },

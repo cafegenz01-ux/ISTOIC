@@ -27,7 +27,7 @@ import { compressImage } from './components/gambar';
 import { IStokWalkieTalkie } from './components/IStokWalkieTalkie'; 
 import { MediaDrawer } from './components/MediaDrawer';
 import { IstokIdentityService, IStokUserIdentity } from './services/istokIdentity';
-import { IStokInput } from './components/IStokInput'; // Refactored to separate file earlier, keeping consistent
+import { IStokInput } from './components/IStokInput'; 
 
 // --- HYDRA CONSTANTS ---
 const CHUNK_SIZE = 1024 * 64; // 64KB
@@ -170,8 +170,26 @@ export const IStokView: React.FC = () => {
 
         try {
             const { Peer } = await import('peerjs');
-            // Simplified STUN list
-            const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+            
+            // 1. Default STUN (Free)
+            let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+            // 2. Titanium Relay (TURN) - If configured in .env
+            const meteredKey = process.env.VITE_METERED_API_KEY;
+            const meteredDomain = process.env.VITE_METERED_DOMAIN || 'istoic.metered.live';
+
+            if (meteredKey) {
+                try {
+                    const response = await fetch(`https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredKey}`);
+                    const ice = await response.json();
+                    if (Array.isArray(ice)) {
+                        iceServers = ice;
+                        console.log("[ISTOK] Titanium Relay (TURN) Configured.");
+                    }
+                } catch (e) {
+                    console.warn("[ISTOK] TURN Config Failed, using STUN fallback.", e);
+                }
+            }
             
             const peer = new Peer(myId, {
                 debug: 0,
@@ -482,7 +500,7 @@ export const IStokView: React.FC = () => {
                 disabled={!isConnected}
                 ttlMode={ttlMode}
                 onToggleTtl={() => setTtlMode(p => p === 0 ? 30 : 0)}
-                onAiAssist={() => {}} // Placeholder
+                onAiAssist={() => {}} 
                 isAiThinking={isAiThinking}
              />
              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
