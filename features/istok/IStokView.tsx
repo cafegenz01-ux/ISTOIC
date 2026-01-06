@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     encryptData, decryptData
 } from '../../utils/crypto'; 
 import { TeleponanView } from '../teleponan/TeleponanView';
 import { activatePrivacyShield } from '../../utils/privacyShield';
 import { 
-    Send, Zap, Radio, ScanLine, Server,
-    Mic, Square, Menu, Skull, PhoneCall, 
-    QrCode, X, RefreshCw, Lock, Flame, 
+    Send, Zap, ScanLine, Server,
+    Mic, Square, Menu, PhoneCall, 
+    QrCode, Lock, Flame, 
     ShieldAlert, ArrowLeft, BrainCircuit, Sparkles,
-    Wifi, WifiOff
+    Wifi, WifiOff, Paperclip
 } from 'lucide-react';
 
 // --- HOOKS & SERVICES ---
@@ -19,7 +19,6 @@ import { SidebarIStokContact, IStokSession } from './components/SidebarIStokCont
 import { ShareConnection } from './components/ShareConnection'; 
 import { ConnectionNotification } from './components/ConnectionNotification';
 import { CallNotification } from './components/CallNotification';
-import { MessageNotification } from './components/MessageNotification';
 import { AudioMessagePlayer } from './components/vn';
 import { compressImage, ImageMessage } from './components/gambar';
 
@@ -95,48 +94,23 @@ const playSound = (type: 'MSG_IN' | 'MSG_OUT' | 'CONNECT' | 'CALL_RING' | 'BUZZ'
             gain.gain.setValueAtTime(0.1, now);
             gain.gain.setValueAtTime(0, now + 0.5);
             osc.start(now); osc.stop(now + 0.5);
-        } else if (type === 'BUZZ') {
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(150, now);
-            gain.gain.setValueAtTime(0.2, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.3);
-            osc.start(now); osc.stop(now + 0.3);
-        } else if (type === 'AI_THINK') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(1200, now);
-            osc.frequency.exponentialRampToValueAtTime(1800, now + 0.1);
-            gain.gain.setValueAtTime(0.05, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.1);
-            osc.start(now); osc.stop(now + 0.1);
         }
     } catch(e) {}
 };
 
-// --- HELPER: ROBUST ICE SERVERS ---
 const getIceServers = async (): Promise<any[]> => {
     const publicIce = [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' },
-        { urls: 'stun:stun.stunprotocol.org:3478' },
-        { urls: 'stun:stun.framasoft.org:3478' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:global.stun.twilio.com:3478' }
     ];
-
     try {
         const apiKey = import.meta.env.VITE_METERED_API_KEY;
-        const appDomain = import.meta.env.VITE_METERED_DOMAIN || 'istoic'; 
-
         if (!apiKey) return publicIce;
-
-        const response = await fetch(`https://${appDomain}.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
+        const response = await fetch(`https://istoic.metered.live/api/v1/turn/credentials?apiKey=${apiKey}`);
         if (!response.ok) return publicIce;
-        
         const turnServers = await response.json();
-        console.log("[ISTOK_NET] Loaded Metered TURN Servers");
         return [...publicIce, ...turnServers];
     } catch (e) {
-        console.warn("[ISTOK_NET] Failed to fetch TURN, using public STUN only.");
         return publicIce;
     }
 };
@@ -161,7 +135,7 @@ const BurnerTimer = ({ ttl, onBurn }: { ttl: number, onBurn: () => void }) => {
 };
 
 const MessageBubble = React.memo(({ msg, setViewImage, onBurn }: { msg: Message, setViewImage: (img: string) => void, onBurn: (id: string) => void }) => {
-    const [burnStarted, setBurnStarted] = useState(msg.type !== 'IMAGE');
+    const [burnStarted, setBurnStarted] = useState(msg.type !== 'IMAGE'); 
 
     return (
         <div className={`flex ${msg.sender === 'ME' ? 'justify-end' : 'justify-start'} animate-fade-in mb-3`}>
@@ -192,10 +166,6 @@ const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, record
     const [text, setText] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        // Expose control if needed
-    }, []);
-
     const insertText = (newText: string) => setText(newText);
 
     return (
@@ -219,7 +189,7 @@ const IStokInput = React.memo(({ onSend, onTyping, disabled, isRecording, record
             </div>
 
             <div className="flex gap-2 items-end">
-                <button onClick={onAttach} className="p-3 bg-white/5 rounded-full text-neutral-400 hover:text-white transition-colors"><Zap size={20}/></button>
+                <button onClick={onAttach} className="p-3 bg-white/5 rounded-full text-neutral-400 hover:text-white transition-colors"><Paperclip size={20}/></button>
                 <div className="flex-1 bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-emerald-500/30 transition-colors relative">
                     <input 
                         ref={inputRef}
@@ -286,7 +256,6 @@ export const IStokView: React.FC = () => {
     // NOTIFICATIONS
     const [incomingRequest, setIncomingRequest] = useState<any>(null);
     const [incomingCall, setIncomingCall] = useState<any>(null);
-    const [latestNotif, setLatestNotif] = useState<any>(null);
 
     // REFS
     const peerRef = useRef<any>(null);
@@ -306,7 +275,7 @@ export const IStokView: React.FC = () => {
     
     useEffect(() => { msgEndRef.current?.scrollIntoView({behavior:'smooth'}); }, [messages]);
 
-    // DEEP LINKING
+    // DEEP LINKING (QR Scan / Link Auto Join)
     useEffect(() => {
         activatePrivacyShield();
         try {
@@ -314,6 +283,7 @@ export const IStokView: React.FC = () => {
             const connect = url.searchParams.get('connect');
             const key = url.searchParams.get('key');
             if (connect && key) {
+                console.log("[ISTOK_AUTO] Found Deep Link Credentials");
                 setTargetPeerId(connect);
                 setAccessPin(key);
                 setMode('JOIN');
@@ -323,7 +293,7 @@ export const IStokView: React.FC = () => {
         } catch(e) {}
     }, []);
 
-    // LOGIC: HELPER FUNCTIONS (Moved inside component body)
+    // --- LOGIC: HELPER FUNCTIONS (DEFINED BEFORE USEEFFECT) ---
     
     const startHeartbeat = useCallback(() => {
         if (heartbeatRef.current) clearInterval(heartbeatRef.current);
@@ -341,14 +311,83 @@ export const IStokView: React.FC = () => {
         setStage('RECONNECTING');
     }, []);
 
-    // PEER INIT (POWERFUL VERSION)
+    const handleData = useCallback(async (data: any, incomingConn?: any) => {
+        // CHUNK REASSEMBLY
+        if (data.type === 'CHUNK') {
+            const { id, idx, total, chunk } = data;
+            if(!chunkBuffer.current[id]) chunkBuffer.current[id] = { chunks: new Array(total), count:0, total };
+            const buf = chunkBuffer.current[id];
+            if(!buf.chunks[idx]) {
+                buf.chunks[idx] = chunk;
+                buf.count++;
+            }
+            if(buf.count === total) {
+                const full = buf.chunks.join('');
+                delete chunkBuffer.current[id];
+                handleData({type:'MSG', payload: full}, incomingConn);
+            }
+            return;
+        }
+
+        const currentPin = pinRef.current;
+
+        // PROTOCOL
+        if (data.type === 'REQ') {
+            const json = await decryptData(data.payload, currentPin);
+            if (json) {
+                const req = JSON.parse(json);
+                if (req.type === 'CONNECTION_REQUEST') {
+                    setIncomingRequest({ peerId: incomingConn.peer, identity: req.identity, conn: incomingConn });
+                    playSound('MSG_IN');
+                }
+            }
+        }
+        else if (data.type === 'RESP') {
+            const json = await decryptData(data.payload, currentPin);
+            if (json) {
+                const res = JSON.parse(json);
+                if (res.type === 'CONNECTION_ACCEPT') {
+                    setStage('SECURE');
+                    setMode('CHAT');
+                    setIsPeerOnline(true);
+                    startHeartbeat();
+                    playSound('CONNECT');
+                    
+                    // Save Session
+                    setSessions(prev => {
+                        const exists = prev.find(s => s.id === connRef.current.peer);
+                        const newSess: IStokSession = {
+                            id: connRef.current.peer,
+                            name: res.identity,
+                            lastSeen: Date.now(),
+                            status: 'ONLINE',
+                            pin: currentPin,
+                            createdAt: Date.now()
+                        };
+                        if (exists) return prev.map(s => s.id === newSess.id ? newSess : s);
+                        return [...prev, newSess];
+                    });
+                }
+            }
+        }
+        else if (data.type === 'MSG') {
+            const json = await decryptData(data.payload, currentPin);
+            if (json) {
+                const msg = JSON.parse(json);
+                setMessages(p => [...p, { ...msg, sender: 'THEM', status: 'READ' }]);
+                playSound('MSG_IN');
+            }
+        }
+        else if (data.type === 'SIGNAL' && data.action === 'BUZZ') { triggerHaptic([100,50,100]); playSound('BUZZ'); }
+    }, [startHeartbeat, setSessions]);
+
+    // --- PEER INIT (POWERFUL VERSION) ---
     useEffect(() => {
         let mounted = true;
         if (peerRef.current) return;
 
         const init = async () => {
             try {
-                // Fetch Powerful Relays
                 setStage('FETCHING_RELAYS');
                 const iceServers = await getIceServers();
                 
@@ -366,7 +405,8 @@ export const IStokView: React.FC = () => {
                     console.log("[ISTOK_NET] Peer Ready:", myProfile.id);
                     setStage('IDLE');
                     if (pendingJoin) {
-                        setTimeout(() => joinSession(pendingJoin.id, pendingJoin.pin), 500);
+                        // Delay sedikit untuk memastikan Peer stabil
+                        setTimeout(() => joinSession(pendingJoin.id, pendingJoin.pin), 1000);
                         setPendingJoin(null);
                     }
                 });
@@ -438,80 +478,6 @@ export const IStokView: React.FC = () => {
         conn.on('error', () => { setStage('IDLE'); setErrorMsg("Conn Error"); });
     };
 
-    const handleData = async (data: any, incomingConn?: any) => {
-        // CHUNK REASSEMBLY
-        if (data.type === 'CHUNK') {
-            const { id, idx, total, chunk } = data;
-            if(!chunkBuffer.current[id]) chunkBuffer.current[id] = { chunks: new Array(total), count:0, total };
-            const buf = chunkBuffer.current[id];
-            if(!buf.chunks[idx]) {
-                buf.chunks[idx] = chunk;
-                buf.count++;
-            }
-            if(buf.count === total) {
-                const full = buf.chunks.join('');
-                delete chunkBuffer.current[id];
-                handleData({type:'MSG', payload: full}, incomingConn);
-            }
-            return;
-        }
-
-        const currentPin = pinRef.current;
-
-        // PROTOCOL
-        if (data.type === 'REQ') {
-            const json = await decryptData(data.payload, currentPin);
-            if (json) {
-                const req = JSON.parse(json);
-                if (req.type === 'CONNECTION_REQUEST') {
-                    setIncomingRequest({ peerId: incomingConn.peer, identity: req.identity, conn: incomingConn });
-                    playSound('MSG_IN');
-                }
-            }
-        }
-        else if (data.type === 'RESP') {
-            const json = await decryptData(data.payload, currentPin);
-            if (json) {
-                const res = JSON.parse(json);
-                if (res.type === 'CONNECTION_ACCEPT') {
-                    setStage('SECURE');
-                    setMode('CHAT');
-                    setIsPeerOnline(true);
-                    startHeartbeat();
-                    playSound('CONNECT');
-                    
-                    // Save Session
-                    setSessions(prev => {
-                        const exists = prev.find(s => s.id === connRef.current.peer);
-                        const newSess: IStokSession = {
-                            id: connRef.current.peer,
-                            name: res.identity,
-                            lastSeen: Date.now(),
-                            status: 'ONLINE',
-                            pin: currentPin,
-                            createdAt: Date.now()
-                        };
-                        if (exists) return prev.map(s => s.id === newSess.id ? newSess : s);
-                        return [...prev, newSess];
-                    });
-                }
-            }
-        }
-        else if (data.type === 'MSG') {
-            const json = await decryptData(data.payload, currentPin);
-            if (json) {
-                const msg = JSON.parse(json);
-                setMessages(p => [...p, { ...msg, sender: 'THEM', status: 'READ' }]);
-                playSound('MSG_IN');
-                if(!document.hasFocus()) setLatestNotif({sender: 'Peer', text: msg.type});
-            }
-        }
-        else if (data.type === 'PING') { 
-            // Pong logic if needed, or just keep alive
-        }
-        else if (data.type === 'SIGNAL' && data.action === 'BUZZ') { triggerHaptic([100,50,100]); playSound('BUZZ'); }
-    };
-
     // --- LOGIC: OMNI RACE AI ---
     const handleAiAssist = async (currentText: string, setTextCallback: (t: string) => void) => {
         setIsAiThinking(true);
@@ -523,7 +489,6 @@ export const IStokView: React.FC = () => {
             `Suggest a reply to the last message. Context:\n${context}`;
 
         try {
-            // Check if OMNI_KERNEL is available, else mock it or handle error
             if (OMNI_KERNEL && OMNI_KERNEL.raceStream) {
                 const stream = OMNI_KERNEL.raceStream(prompt, "You are a helpful, brief chat assistant. Respond in Indonesian.");
                 let fullDraft = '';
@@ -534,7 +499,6 @@ export const IStokView: React.FC = () => {
                     }
                 }
             } else {
-               // Fallback if Omni not loaded
                setTimeout(() => setTextCallback("AI Engine not ready."), 1000);
             }
         } catch (e) {
@@ -620,7 +584,7 @@ export const IStokView: React.FC = () => {
                         <div className="p-3 bg-blue-500/10 rounded-xl text-blue-500 relative"><ScanLine size={24}/></div>
                         <div className="text-left relative">
                             <h3 className="text-white font-bold tracking-wide">JOIN TARGET</h3>
-                            <p className="text-[10px] text-neutral-500">Connect via ID / QR</p>
+                            <p className="text-[10px] text-neutral-500">Scan QR Code / Enter ID</p>
                         </div>
                     </button>
                     
@@ -630,8 +594,9 @@ export const IStokView: React.FC = () => {
                 </div>
 
                 <SidebarIStokContact 
-                    isOpen={showSidebar} onClose={()=>setShowSidebar(false)} sessions={sessions} 
+                    isOpen={showSidebar} onClose={()=>setShowSidebar(false)} sessions={sessions} profile={myProfile}
                     onSelect={(s)=>{ setTargetPeerId(s.id); setAccessPin(s.pin); joinSession(s.id, s.pin); setShowSidebar(false); }}
+                    onCallContact={()=>{}} onRenameSession={()=>{}} onDeleteSession={()=>{}} onRegenerateProfile={()=>{}} currentPeerId={null}
                 />
             </div>
         );
@@ -663,7 +628,7 @@ export const IStokView: React.FC = () => {
                         <div className="text-center mb-8">
                             <ScanLine className="text-blue-500 mx-auto mb-4" size={40}/>
                             <h2 className="text-xl font-bold text-white">ESTABLISH UPLINK</h2>
-                            <p className="text-xs text-neutral-500">{stage === 'IDLE' ? 'Enter Credentials' : stage}</p>
+                            <p className="text-xs text-neutral-500">{stage === 'IDLE' ? 'Scan QR Code via Camera' : stage}</p>
                         </div>
                         {stage === 'IDLE' ? (
                             <>
