@@ -136,6 +136,7 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
             return;
         }
 
+        // Initialize profile with static data first, update later with real peer ID
         setMyProfile({
             id: identity.istokId,
             username: identity.displayName,
@@ -150,6 +151,10 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
             // Check if peer exists and not destroyed/disconnected
             if (globalPeer && !globalPeer.destroyed && !globalPeer.disconnected) {
                 setIsPeerAlive(true);
+                // Update profile with ACTIVE peer ID (which might be a fallback ID)
+                if (globalPeer.id && globalPeer.id !== myProfile.id) {
+                     setMyProfile(prev => ({ ...prev, id: globalPeer.id }));
+                }
             } else {
                 setIsPeerAlive(false);
             }
@@ -394,7 +399,6 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
 
     const sendMessage = async (type: string, content: string, extraData: any = {}) => {
         // IMPROVED OFFLINE HANDLING
-        // If offline, create pending message and allow it to sit in UI with Clock Icon.
         if (!isNetworkOnline) {
              const pendingMsg = { 
                  id: crypto.randomUUID(), 
@@ -407,10 +411,8 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
                  status: 'PENDING' 
              };
              
-             // Update local UI immediately
              setMessages(prev => [...prev, pendingMsg as Message]);
              
-             // Try to register background sync if available
              if ('serviceWorker' in navigator && 'SyncManager' in window) {
                  try {
                      const reg = await navigator.serviceWorker.ready;
@@ -421,7 +423,6 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
                      console.warn("Sync registration failed", e);
                  }
              }
-             
              return;
         }
 
@@ -514,9 +515,9 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
                              <div className="flex-1 min-w-0">
                                  <h2 className="text-2xl font-bold truncate">{identity?.displayName}</h2>
                                  <p className="text-xs text-neutral-500 font-mono mb-3 truncate">{identity?.email}</p>
-                                 <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/5 cursor-pointer hover:bg-white/10 transition-all" onClick={() => navigator.clipboard.writeText(identity?.istokId || '')}>
+                                 <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/5 cursor-pointer hover:bg-white/10 transition-all" onClick={() => navigator.clipboard.writeText(myProfile.id || '')}>
                                      <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">ID:</span>
-                                     <code className="text-xs font-mono text-white truncate max-w-[150px]">{identity?.istokId}</code>
+                                     <code className="text-xs font-mono text-white truncate max-w-[150px]">{myProfile.id || 'INITIALIZING...'}</code>
                                      <Sparkles size={12} className="text-emerald-500"/>
                                  </div>
                              </div>
@@ -601,7 +602,7 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
                     setShowScanner(false);
                 }} onClose={()=>setShowScanner(false)} />}
 
-                {showShare && <ShareConnection peerId={identity?.istokId || ''} pin={accessPin || '000000'} onClose={()=>setShowShare(false)} />}
+                {showShare && <ShareConnection peerId={myProfile.id || ''} pin={accessPin || '000000'} onClose={()=>setShowShare(false)} />}
                 
                 <SidebarIStokContact 
                     isOpen={showSidebar} 

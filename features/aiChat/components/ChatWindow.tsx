@@ -16,7 +16,7 @@ interface ChatWindowProps {
   messages: ChatMessage[];
   personaMode: 'hanisah' | 'stoic';
   isLoading: boolean;
-  messagesEndRef: React.RefObject<HTMLDivElement>; // Kept for API compatibility, but Virtuoso handles scrolling
+  messagesEndRef: React.RefObject<HTMLDivElement>; // Kept for API compatibility
   onUpdateMessage?: (messageId: string, newText: string) => void;
 }
 
@@ -166,7 +166,6 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
     const isError = msg.metadata?.status === 'error';
     const isRerouting = msg.metadata?.isRerouting;
     
-    // Explicitly handle text type: use string if available, else empty string (ignoring Blob/Audio for now in this view)
     const textContent: string = typeof msg.text === 'string' ? msg.text : '';
 
     const { thought, content, imgPrompt } = useMemo(() => {
@@ -251,17 +250,6 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
 export const ChatWindow: React.FC<ChatWindowProps> = memo(({ messages, personaMode, isLoading, messagesEndRef, onUpdateMessage }) => {
     const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-    // Initial scroll to bottom
-    useEffect(() => {
-        // Short delay to ensure rendering is complete
-        setTimeout(() => {
-            virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, align: 'end' });
-        }, 100);
-    }, []);
-
-    // Follow output logic handled by Virtuoso (autoscroll when near bottom)
-    
-    // Add loading indicator as a pseudo-message if needed, or handle in itemContent
     const allItems = isLoading 
         ? [...messages, { id: 'loading-indicator', role: 'model', text: '', isLoader: true } as any] 
         : messages;
@@ -273,11 +261,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({ messages, personaMo
                 style={{ height: '100%', width: '100%' }}
                 data={allItems}
                 initialTopMostItemIndex={messages.length - 1}
-                followOutput={'auto'}
-                alignToBottom
+                followOutput="auto" // IMPORTANT: Fixes scrolling issues with new content
                 itemContent={(index, msg) => {
                     if ((msg as any).isLoader) {
-                         // Only show spinner if specifically in "thinking" mode without text yet
                          if (messages.length > 0 && messages[messages.length-1].role === 'user') {
                             return (
                                 <div className="flex justify-start mb-10 pl-14 animate-fade-in py-4">
@@ -291,13 +277,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({ messages, personaMo
                          return null;
                     }
 
-                    // Check if it's the last message to pass isLoading prop correctly
                     const isLast = index === messages.length - 1;
                     const loadingState = isLoading && isLast && msg.role === 'model';
                     
                     return (
                         <div className="py-2">
                              <MessageBubble 
+                                key={msg.id}
                                 msg={msg} 
                                 personaMode={personaMode} 
                                 isLoading={loadingState} 

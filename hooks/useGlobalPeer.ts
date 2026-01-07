@@ -36,8 +36,13 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
         if (retryTimeout.current) clearTimeout(retryTimeout.current);
     }, []);
 
-    const scheduleReconnect = useCallback((isError: boolean = false) => {
+    const scheduleReconnect = useCallback((isFatalError: boolean = false) => {
         if (retryTimeout.current) clearTimeout(retryTimeout.current);
+        if (isFatalError && retryCount.current > 5) {
+             console.error("[HYDRA] Max retries reached on fatal error. Stopping.");
+             setStatus('ERROR');
+             return;
+        }
 
         // Exponential Backoff: 2s, 5s, 10s... max 30s
         const baseDelay = 2000;
@@ -49,26 +54,28 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
         
         retryTimeout.current = setTimeout(() => {
             retryCount.current++;
-            initGlobalPeer();
+            initGlobalPeer(); // Retry with original logic
         }, delay);
-    }, []); // No deps, stable to avoid recreation
+    }, []); 
 
-    const initGlobalPeer = useCallback(async () => {
+    const initGlobalPeer = useCallback(async (overrideId?: string) => {
         const currentUser = identityRef.current;
         if (!currentUser || !currentUser.istokId) return;
 
         // Prevent double init if currently connecting or ready
-        if (statusRef.current === 'CONNECTING' || (statusRef.current === 'READY' && peerRef.current && !peerRef.current.disconnected)) {
+        // Exception: If overrideId is present, we are forcing a retry with a new ID
+        if (!overrideId && (statusRef.current === 'CONNECTING' || (statusRef.current === 'READY' && peerRef.current && !peerRef.current.disconnected))) {
             return;
         }
 
-        // Clean up previous instance only if completely dead
-        if (peerRef.current && peerRef.current.destroyed) {
+        // Clean up previous instance
+        if (peerRef.current) {
+            peerRef.current.destroy();
             peerRef.current = null;
         }
 
         setStatus('CONNECTING');
-        console.log(`[HYDRA] INITIALIZING ENGINE (Attempt ${retryCount.current})...`);
+        console.log(`[HYDRA] INITIALIZING ENGINE (Attempt ${retryCount.current})... ID: ${overrideId || currentUser.istokId}`);
 
         try {
             const { Peer } = await import('peerjs');
@@ -95,17 +102,16 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
                 }
             }
 
-            const peer = new Peer(currentUser.istokId, {
-                debug: 0, // Disable verbose logs to reduce noise
+            // Use override ID (fallback) or original ID
+            const targetPeerId = overrideId || currentUser.istokId;
+
+            const peer = new Peer(targetPeerId, {
+                debug: 0, 
                 config: { 
                     iceServers: iceServers,
-                    // CRITICAL FIX: Use 'all' to allow P2P when TURN fails or isn't needed. 
-                    // 'relay' strictly blocks direct connection causing failures on standard networks.
                     iceTransportPolicy: 'all', 
                     iceCandidatePoolSize: 10
-                },
-                // Removed pingInterval to let browser/server handle keepalives naturally
-                // pingInterval: 5000, 
+                }
             } as any);
 
             // --- EVENTS ---
@@ -142,13 +148,12 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
             });
 
             peer.on('disconnected', () => {
+                // Only trigger disconnected if not explicitly destroyed by us for a retry
+                if (peer.destroyed) return;
                 console.warn('[HYDRA] SIGNAL LOST (Disconnected).');
                 setStatus('DISCONNECTED');
                 setIsPeerReady(false);
-                // PeerJS recommends reconnect() on disconnect
-                if (!peer.destroyed) {
-                    peer.reconnect();
-                }
+                peer.reconnect();
             });
 
             peer.on('close', () => {
@@ -156,15 +161,22 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
                 setStatus('DISCONNECTED');
                 setIsPeerReady(false);
                 setPeerId(null);
-                scheduleReconnect();
+                // Do NOT schedule reconnect here if it was caused by 'unavailable-id' handling
+                // The 'error' handler will take care of unique ID logic.
+                // Only schedule if it wasn't an intentional destroy.
             });
 
             peer.on('error', (err) => {
                 console.error("[HYDRA] ERROR:", err.type, err.message);
                 
+                // --- CRITICAL FIX: ID COLLISION HANDLER ---
                 if (err.type === 'unavailable-id') {
-                    // Fatal: ID taken. Do not retry automatically loop.
-                    setStatus('ERROR');
+                    console.warn("[HYDRA] ID TAKEN. Applying Auto-Fallback...");
+                    // Generate a semi-random suffix to guarantee uniqueness
+                    const suffix = Math.floor(Math.random() * 900) + 100;
+                    const fallbackId = `${currentUser.istokId}-${suffix}`;
+                    // Retry immediately with new ID
+                    initGlobalPeer(fallbackId);
                     return; 
                 }
 
@@ -175,7 +187,10 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
                     setStatus('ERROR');
                 }
 
-                scheduleReconnect(true);
+                // If not an ID error, standard reconnect schedule
+                if (err.type !== 'unavailable-id') {
+                    scheduleReconnect(true); // Treat as potentially fatal/retry-able
+                }
             });
 
             peerRef.current = peer;
@@ -185,23 +200,21 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
             setStatus('ERROR');
             scheduleReconnect(true);
         }
-    }, []); // Empty dependencies = Stable function reference
+    }, []); 
 
     // Initial Setup
     useEffect(() => {
-        // Only run if we have an identity and not already connected
         if (identity?.istokId && !peerRef.current) {
             retryCount.current = 0;
             initGlobalPeer();
         }
         
-        // Cleanup only on unmount
         return () => {
             destroyPeer();
         };
     }, [identity?.istokId]); 
 
-    // Watchdog for Zombie Connections
+    // Watchdog
     useEffect(() => {
         healthCheckInterval.current = setInterval(() => {
             if (!peerRef.current) return;
@@ -239,9 +252,9 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
         clearIncoming: () => setIncomingConnection(null),
         forceReconnect: () => {
              console.log("[HYDRA] MANUAL RECONNECT TRIGGERED");
-             retryCount.current = 0; // Reset backoff on manual trigger
+             retryCount.current = 0;
              if (peerRef.current) peerRef.current.destroy();
-             initGlobalPeer();
+             initGlobalPeer(); // Will reset to original ID
         }
     };
 };

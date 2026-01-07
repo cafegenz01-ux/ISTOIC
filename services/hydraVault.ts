@@ -33,8 +33,9 @@ export class HydraVault {
     const viteEnv = (import.meta as any).env || {};
     const providers: Provider[] = ['GEMINI', 'GROQ', 'OPENAI', 'DEEPSEEK', 'MISTRAL', 'OPENROUTER', 'ELEVENLABS', 'HUGGINGFACE'];
 
-    // Check if we should enable Server-Managed Mode (Production Security)
-    const useSecureBackend = viteEnv.VITE_USE_SECURE_BACKEND === 'true' || (typeof process !== 'undefined' && process.env.VITE_USE_SECURE_BACKEND === 'true');
+    // Check Global Secure Mode Flag (Injected by Vite)
+    const isSecureMode = (typeof __SECURE_MODE__ !== 'undefined' && __SECURE_MODE__) || 
+                         viteEnv.VITE_USE_SECURE_BACKEND === 'true';
 
     providers.forEach(provider => {
         const keys = new Set<string>(); 
@@ -50,12 +51,14 @@ export class HydraVault {
         // 1. Check Local Dev Keys (VITE_ prefix only)
         addKey(viteEnv[`VITE_${provider}_API_KEY`]);
         
-        // 2. SECURITY UPGRADE:
-        // If no local keys found AND we are in Secure Mode, inject a "Virtual Key".
-        // This tells the engine: "Don't crash, the Server has the keys."
-        if (keys.size === 0 && useSecureBackend) {
-            keys.add('server-side-managed');
-            debugService.log('KERNEL', 'HYDRA', 'SECURE_MODE', `Routing ${provider} to Backend Proxy.`);
+        // 2. Fallback: If no local keys, inject Virtual Key for Proxy
+        if (keys.size === 0) {
+            if (isSecureMode) {
+                keys.add('server-side-managed');
+            } else {
+               // Only warn in dev console if absolutely no keys and not in secure mode
+               // console.warn(`[Hydra] No keys for ${provider}`);
+            }
         }
 
         this.vault[provider] = Array.from(keys).map((k, index) => ({
@@ -71,9 +74,6 @@ export class HydraVault {
             this.counters[provider] = 0;
         }
     });
-    
-    const totalKeys = Object.values(this.vault).flat().length;
-    // debugService.log('KERNEL', 'HYDRA_V20', 'INIT', `Vault Locked. ${totalKeys} active paths.`);
   }
 
   public getKey(provider: Provider): string | null {
@@ -93,7 +93,13 @@ export class HydraVault {
     const activeKeys = pool.filter((k) => k.status === 'ACTIVE');
     
     if (activeKeys.length === 0) {
-        return null; 
+        // If all keys failed, check if we have a server-managed key in cooldown
+        // Server managed keys shouldn't really cooldown locally unless 429
+        const managed = pool.find(k => SECURITY_MATRIX.decloak(k.cloakedKey) === 'server-side-managed');
+        if (managed && managed.status === 'COOLDOWN' && managed.cooldownUntil > now) {
+            return null; 
+        }
+        return null;
     }
 
     // Round Robin
@@ -105,10 +111,9 @@ export class HydraVault {
   }
 
   public reportFailure(provider: Provider, plainKeyString: string, error: any): void {
-    // If it's a server-side managed key, we don't penalize it locally, 
-    // but we log the backend failure.
+    // If it's a server-side managed key, log it but be lenient
     if (plainKeyString === 'server-side-managed') {
-         debugService.log('ERROR', 'BACKEND_PROXY', 'FAIL', `${provider} request failed on server.`);
+         debugService.log('ERROR', 'BACKEND_PROXY', 'FAIL', `${provider} proxy request failed.`, error);
          return;
     }
 
@@ -158,5 +163,8 @@ export class HydraVault {
       });
   }
 }
+
+// Global Declaration for Vite define
+declare const __SECURE_MODE__: boolean;
 
 export const GLOBAL_VAULT = new HydraVault();

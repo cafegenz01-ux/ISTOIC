@@ -12,7 +12,7 @@ import { useVault } from '../../../contexts/VaultContext';
 import { debugService } from '../../../services/debugService';
 import { PollinationsService } from '../../../services/pollinationsService';
 import { MemoryService } from '../../../services/memoryService';
-import { useChatStorage } from '../../../hooks/useChatStorage'; // Fix import
+import { useChatStorage } from '../../../hooks/useChatStorage'; 
 import { useAIStream } from './useAIStream';
 
 export const useChatLogic = (notes: Note[], setNotes: (notes: Note[]) => void) => {
@@ -116,20 +116,9 @@ export const useChatLogic = (notes: Note[], setNotes: (notes: Note[]) => void) =
             metadata: { status: 'success' }
         };
 
-        // 1. IMMEDIATE UI UPDATE (Optimistic)
-        // Ensure message appears instantly even if DB sync lags
-        setThreads(prev => prev.map(t => {
-            if (t.id === currentThreadId) {
-                return {
-                    ...t,
-                    messages: [...t.messages, newUserMsg],
-                    updated: new Date().toISOString()
-                };
-            }
-            return t;
-        }));
-
-        // 2. Persist to DB
+        // 1. UPDATE STATE & DB (Single Source of Truth)
+        // Note: addMessage updates the local state immediately via useIDB's setter, 
+        // preventing UI lag, while also persisting to IndexedDB.
         addMessage(currentThreadId!, newUserMsg);
         
         // Auto rename check
@@ -140,7 +129,7 @@ export const useChatLogic = (notes: Note[], setNotes: (notes: Note[]) => void) =
 
         setInput('');
         
-        // 3. Trigger Stream
+        // 2. Trigger Stream
         await streamMessage(userMsg, activeModel, attachment);
     };
 
@@ -198,8 +187,8 @@ export const useChatLogic = (notes: Note[], setNotes: (notes: Note[]) => void) =
         handleNewChat, 
         sendMessage: handleSendMessage, 
         stopGeneration,
-        generateWithHydra, // Renamed for consistency
-        generateWithPollinations: generateWithHydra, // Alias for View compatibility
+        generateWithHydra, 
+        generateWithPollinations: generateWithHydra, 
         imageModelId, setImageModelId,
         
         // Storage Actions
