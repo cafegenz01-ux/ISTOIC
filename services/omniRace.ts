@@ -15,7 +15,7 @@ export interface StreamChunk {
  * OMNI RACE KERNEL
  * Executes requests against multiple providers simultaneously.
  * The first provider to emit a text chunk WINS.
- * Losers are aborted immediately.
+ * Losers are aborted immediately to save costs.
  */
 export class OmniRaceKernel {
   private readonly TIMEOUT_MS = 45_000; // 45s Hard Limit
@@ -40,8 +40,10 @@ export class OmniRaceKernel {
     
     debugService.log('INFO', 'OMNI_RACE', 'START', 'Initializing parallel execution protocol...');
 
+    // MASTER CONTROLLER: Aborts all losers
     const controller = new AbortController();
     const signal = controller.signal;
+    
     const fullPrompt = context ? `${systemInstruction}\n\n[CONTEXT]\n${context}\n\n[USER]\n${prompt}` : prompt;
 
     // We use a Promise to bridge the gap between "First Response" and "Generator Yielding"
@@ -52,18 +54,27 @@ export class OmniRaceKernel {
         const racerCount = Object.keys(this.RACE_CONFIG).length;
 
         Object.entries(this.RACE_CONFIG).forEach(([name, config]) => {
+            // Pass the signal down to the individual execution
             this.executeProviderStream(name, config.provider, config.model, fullPrompt, signal, systemInstruction)
                 .then(iterator => {
                     if (!winnerDeclared) {
                         winnerDeclared = true;
                         debugService.log('INFO', 'OMNI_RACE', 'WINNER', `🏆 ${name} won the race.`);
                         resolve(iterator);
-                        // We do NOT abort here yet, we abort after we confirm the stream is readable
+                        // IMPORTANT: We do NOT abort here immediately. 
+                        // If we abort now, the winner's stream might also get cut if they share the signal logic.
+                        // We abort the losers explicitly or let the cleanup happen in the wrapper.
+                        // For simplicity in this architecture, we let the winner flow and rely on the controller cleanup at the end,
+                        // OR we rely on the fact that losers will check `signal.aborted`.
                     }
                 })
                 .catch(err => {
                     failureCount++;
-                    debugService.log('WARN', 'OMNI_RACE', 'FAIL', `${name} dropped out: ${err.message}`);
+                    // Only log if it wasn't an abort error (which is expected for losers)
+                    if (err.name !== 'AbortError') {
+                        debugService.log('WARN', 'OMNI_RACE', 'FAIL', `${name} dropped out: ${err.message}`);
+                    }
+                    
                     if (failureCount >= racerCount && !winnerDeclared) {
                         reject(new Error("ALL_ENGINES_FAILED"));
                     }
@@ -87,12 +98,14 @@ export class OmniRaceKernel {
             yield chunk;
         }
         
-        // Once stream finishes (or if we break), abort others to be safe
-        controller.abort();
-
     } catch (error: any) {
-        debugService.log('ERROR', 'OMNI_RACE', 'CRITICAL', error.message);
-        yield { text: `\n\n> ⚠️ **Omni-Race Failed**: All cognitive nodes rejected the request.` };
+        if (error.message !== 'ALL_ENGINES_FAILED' && error.name !== 'AbortError') {
+             debugService.log('ERROR', 'OMNI_RACE', 'CRITICAL', error.message);
+        }
+        yield { text: `\n\n> ⚠️ **Omni-Race Failed**: All cognitive nodes rejected the request or timed out.` };
+    } finally {
+        // CLEANUP: Abort any pending/losing requests once the stream is done or errors out
+        controller.abort();
     }
   }
 
@@ -110,13 +123,17 @@ export class OmniRaceKernel {
     systemInstruction?: string
   ): Promise<AsyncGenerator<StreamChunk>> {
     
+    if (signal.aborted) throw new Error("AbortError");
+
     const key = GLOBAL_VAULT.getKey(provider);
     if (!key) throw new Error("NO_KEY");
 
     // 1. GEMINI IMPLEMENTATION
     if (provider === 'GEMINI') {
         const ai = new GoogleGenAI({ apiKey: key });
-        // Correctly handle streaming response for Gemini
+        
+        // Note: GoogleGenAI SDK currently doesn't expose a clean AbortSignal on generateContentStream setup
+        // But we can check signal status inside the iterator loop.
         const streamResult = await ai.models.generateContentStream({
             model: modelId,
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -129,10 +146,8 @@ export class OmniRaceKernel {
         // Return a generator that wraps the Gemini stream
         async function* geminiGenerator() {
             try {
-                // Correctly iterate directly over streamResult as an async iterator
                 for await (const chunk of streamResult) {
-                    if (signal.aborted) break;
-                    // Access text property directly (do not call as a function)
+                    if (signal.aborted) break; // Manual abort check
                     const text = chunk.text;
                     if (text) yield { text };
                 }
@@ -164,7 +179,7 @@ export class OmniRaceKernel {
             { role: "user", content: prompt }
         ],
         stream: true,
-    }, { signal }).catch(e => {
+    }, { signal: signal }).catch(e => {
         GLOBAL_VAULT.reportFailure(provider, key, e);
         throw e;
     });

@@ -299,11 +299,12 @@ export class NeuralLinkService {
             constraints.noiseSuppression = { ideal: true };
             constraints.autoGainControl = { ideal: true };
         } else if (mode === 'HIGH_FIDELITY') {
+            // Sometimes disabling processed audio is better for music/singing
             constraints.echoCancellation = false;
             constraints.noiseSuppression = false;
             constraints.autoGainControl = false;
         } else {
-            // Standard
+            // Standard: Always default to echo cancellation ON
             constraints.echoCancellation = true;
             constraints.noiseSuppression = true;
             constraints.autoGainControl = true;

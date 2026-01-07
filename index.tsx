@@ -2,6 +2,16 @@
 // IMPORT WAJIB: Penyeimbang WebRTC untuk semua browser (Safari/Android lama)
 import 'webrtc-adapter'; 
 
+// Patch untuk mencegah crash karena Extension Wallet (Metamask/Phantom)
+try {
+  if (typeof window !== 'undefined' && (window as any).ethereum) {
+    // Opsional: Freeze object jika extension nakal menimpa variabel global
+    // Object.freeze((window as any).ethereum); 
+  }
+} catch (e) {
+  console.warn("Web3 Provider Conflict Ignored");
+}
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

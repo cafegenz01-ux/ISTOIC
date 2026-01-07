@@ -66,35 +66,39 @@ export const useGlobalPeer = (identity: IStokUserIdentity | null) => {
         try {
             const { Peer } = await import('peerjs');
             
+            // DEFAULT ICE SERVERS (Google STUN) - Reliable for home WiFi
             let iceServers = [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
             ];
 
-            const meteredKey = process.env.VITE_METERED_API_KEY;
-            const meteredDomain = process.env.VITE_METERED_DOMAIN || 'istoic.metered.live';
+            const meteredKey = (import.meta as any).env.VITE_METERED_API_KEY;
+            const meteredDomain = (import.meta as any).env.VITE_METERED_DOMAIN || 'istoic.metered.live';
 
+            // ATTEMPT TURN RELAY FETCH (Critical for 4G/Corporate Networks)
             if (meteredKey) {
                 try {
                     const response = await fetch(`https://${meteredDomain}/api/v1/turn/credentials?apiKey=${meteredKey}`);
                     const ice = await response.json();
                     if (Array.isArray(ice)) {
                         iceServers = [...ice, ...iceServers];
-                        console.log("[HYDRA] TURN RELAY: ACTIVATED");
+                        console.log("[HYDRA] TURN RELAY: ACTIVATED (Firewall Penetration Ready)");
                     }
                 } catch (e) {
-                    console.warn("[HYDRA] TURN FALLBACK: STANDARD");
+                    console.warn("[HYDRA] TURN FETCH FAILED. FALLING BACK TO STANDARD STUN.", e);
                 }
+            } else {
+                console.warn("[HYDRA] NO METERED KEY FOUND. RUNNING IN STANDARD P2P MODE (May fail on 4G).");
             }
 
             const peer = new Peer(identity.istokId, {
-                debug: 0,
+                debug: 1, // Log errors but not excessive info
                 config: { 
                     iceServers: iceServers,
-                    iceTransportPolicy: 'all',
+                    iceTransportPolicy: meteredKey ? 'relay' : 'all', // Prefer relay if key exists for stability
                     iceCandidatePoolSize: 10
                 },
-                pingInterval: 10000, // Slower ping to save resources
+                pingInterval: 5000, 
             } as any);
 
             // --- EVENTS ---

@@ -106,6 +106,12 @@ export async function* streamOpenAICompatible(
         return;
     }
 
+    // FIX: PREVENT 401 LOOP IF KEY IS SERVER-SIDE PLACEHOLDER
+    if (apiKey === 'server-side-managed') {
+        yield { text: `\n\n🔒 **SECURE MODE ACTIVE**: Client-side execution disabled for ${provider}. Please enable VITE_USE_SECURE_BACKEND to route this request through the server.` };
+        return;
+    }
+
     const fullMessages: any[] = [
         { role: 'system', content: systemInstruction || "You are a helpful assistant." },
         ...messages
@@ -354,7 +360,7 @@ export async function generateMultiModalImage(provider: string, modelId: string,
                 if (options?.aspectRatio === '16:9') size = "1792x1024";
                 else if (options?.aspectRatio === '9:16') size = "1024x1792";
             }
-            const endpoint = SECURITY_MATRIX.synthesizeEndpoint([104,116,116,112,115,58,47,47,97,112,105,46,111,112,101,110,97,105,46,99,111,109,47,118,49,47,105,109,97,103,101,115,47,103,101,110,101,114,97,116,105,111,110,115]);
+            const endpoint = SECURITY_MATRIX.synthesizeEndpoint([104,116,116,112,115,58,47,47,97,112,105,46,111,112,101,110,97,105,46,99,111,109,47,118,49,47,99,104,97,116,47,99,111,109,112,108,101,116,105,111,110,115]);
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },

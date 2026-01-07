@@ -3,7 +3,7 @@ import { debugService } from './debugService';
 import { HANISAH_KERNEL } from './melsaKernel';
 
 /**
- * IStoicAI v0.52 ENTERPRISE PROXY (SECURE HYBRID)
+ * IStoicAI v0.53 ENTERPRISE PROXY (SECURE HYBRID)
  * 
  * SECURITY UPGRADE:
  * This service now defaults to a Server-First architecture.
@@ -51,10 +51,6 @@ const BACKEND_URL = (import.meta as any).env.VITE_BACKEND_URL || '/api/chat';
 
 /**
  * Retries a fetch operation with exponential backoff.
- * @param url Request URL
- * @param options Fetch options
- * @param retries Max retries (default 3)
- * @param backoffMs Initial backoff in ms (default 1000)
  */
 async function fetchWithBackoff(url: string, options: RequestInit, retries = 3, backoffMs = 1000): Promise<Response> {
   try {
@@ -94,14 +90,11 @@ class ApiProxyService {
     // STRATEGY A: SECURE BACKEND (RECOMMENDED FOR PRODUCTION)
     if (USE_SECURE_BACKEND) {
         try {
-            // Updated to use Retry Logic
             const response = await fetchWithBackoff(BACKEND_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    // 'Authorization': `Bearer ${token}` // Add auth token here if needed
                 },
-                // Backend expects 'message', 'provider', 'modelId', 'context'
                 body: JSON.stringify({ 
                     message: prompt, 
                     provider, 
@@ -116,8 +109,6 @@ class ApiProxyService {
             }
 
             // CONSUME STREAM FROM BACKEND
-            // The backend returns a ReadableStream (text/plain).
-            // We must read it fully to construct the AIResponse object.
             const reader = response.body?.getReader();
             const decoder = new TextDecoder();
             let fullText = "";
@@ -130,18 +121,27 @@ class ApiProxyService {
                 }
             }
 
-            // Construct the response object manually since backend returns raw text stream
             const data = {
                 text: fullText,
                 modelUsed: modelId,
                 metadata: { timestamp: new Date().toISOString(), source: 'SERVER_STREAM' }
             };
 
-            return AIResponseSchema.parse(data);
+            // SAFE PARSE UPGRADE
+            const parsed = AIResponseSchema.safeParse(data);
+            if (!parsed.success) {
+                console.error("AI Response Validation Failed:", parsed.error);
+                // Return a safe fallback instead of crashing
+                return {
+                    text: fullText || "Error: Malformed response from AI provider.",
+                    modelUsed: modelId,
+                    metadata: { error: "Schema Validation Failed" }
+                };
+            }
+            return parsed.data;
 
         } catch (serverError: any) {
             console.error("Server Proxy Failed:", serverError);
-            // If in production, do not fallback to client-side to prevent key leak
             if ((import.meta as any).env.PROD) {
                 throw new Error(`Secure Backend Unreachable: ${serverError.message}`);
             }
@@ -149,7 +149,6 @@ class ApiProxyService {
     }
 
     // STRATEGY B: LOCAL EXECUTION (DEV / FALLBACK)
-    // WARNING: Exposes keys in client logic.
     console.warn("⚠️ [SECURITY WARNING] RUNNING IN CLIENT-SIDE FALLBACK MODE. API KEYS ARE EXPOSED TO BROWSER.");
     
     try {
@@ -166,11 +165,20 @@ class ApiProxyService {
         metadata: { timestamp: new Date().toISOString() }
       };
 
-      // STRICT VALIDATION
-      return AIResponseSchema.parse(rawResponse);
+      // SAFE PARSE UPGRADE
+      const parsed = AIResponseSchema.safeParse(rawResponse);
+      if (!parsed.success) {
+          debugService.log('WARN', 'PROXY', 'VALIDATION_WARN', 'AI Output schema mismatch, using fallback.');
+          return {
+              text: fullText,
+              modelUsed: modelId,
+              metadata: { warning: "Validation Failed" }
+          };
+      }
+      return parsed.data;
 
     } catch (error) {
-      debugService.log('ERROR', 'PROXY', 'VALIDATION_FAIL', 'AI Output failed integrity check', error);
+      debugService.log('ERROR', 'PROXY', 'CRITICAL_FAIL', 'AI Output failed integrity check', error);
       throw new Error("Secure Proxy Error: Upstream response invalid or failed.");
     }
   }

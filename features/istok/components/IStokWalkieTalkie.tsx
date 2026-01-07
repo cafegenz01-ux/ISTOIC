@@ -58,15 +58,29 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
     const audioQueueRef = useRef<string[]>([]);
     const isPlayingRef = useRef(false);
     
+    // Use Ref for status to access it inside async closures without dependency loops
+    const statusRef = useRef<'IDLE' | 'TX' | 'RX'>('IDLE');
+    
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const timerRef = useRef<any>(null);
     
     const processedMessageIds = useRef<Set<string>>(new Set());
 
+    // Sync Ref with State
+    useEffect(() => {
+        statusRef.current = status;
+        
+        // If we just went back to IDLE, check queue
+        if (status === 'IDLE') {
+            processAudioQueue();
+        }
+    }, [status]);
+
     // --- QUEUE PROCESSOR ---
     const processAudioQueue = async () => {
-        if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
+        // ANTI-FEEDBACK: Do not play if Transmitting (TX) or already Playing
+        if (isPlayingRef.current || statusRef.current === 'TX' || audioQueueRef.current.length === 0) return;
 
         isPlayingRef.current = true;
         const nextBase64 = audioQueueRef.current.shift();
@@ -78,8 +92,8 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
                 console.error("Playback error", e);
             } finally {
                 isPlayingRef.current = false;
-                // Recursively check for next item
-                processAudioQueue();
+                // Recursively check for next item after a small breathing room
+                setTimeout(processAudioQueue, 300);
             }
         } else {
             isPlayingRef.current = false;
@@ -101,6 +115,14 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
 
     const playIncomingAudio = (base64: string): Promise<void> => {
         return new Promise(async (resolve) => {
+            // Double check status before starting playback to prevent race conditions
+            if (statusRef.current === 'TX') {
+                // If user started talking while we were preparing, put it back in queue
+                audioQueueRef.current.unshift(base64);
+                resolve();
+                return;
+            }
+
             const ctx = getGlobalAudioContext();
             // IMPORTANT for iOS: Resume context on user interaction triggered playback
             await resumeGlobalAudio();
@@ -142,13 +164,22 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
         await resumeGlobalAudio();
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // ACOUSTIC ECHO CANCELLATION: Critical for PTT to prevent screeching
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    sampleRate: 16000 // Low bandwidth optimization
+                } 
+            });
+            
             playTone(ctx, 'TX_START');
             
             // Ultra-low bitrate for PTT efficiency over 4G
             let options = {};
             if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 12000 };
+                options = { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 16000 };
             } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 options = { mimeType: 'audio/mp4', audioBitsPerSecond: 16000 };
             } else if (MediaRecorder.isTypeSupported('audio/webm')) {
@@ -184,16 +215,21 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
 
         } catch (e) {
             console.error("Mic Error", e);
-            alert("Mic Access Denied");
+            alert("Mic Access Denied or Hardware Error");
+            setStatus('IDLE');
         }
     };
 
     const stopTx = () => {
-        if (status === 'TX' && mediaRecorderRef.current) {
+        if (status === 'TX' && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
             mediaRecorderRef.current.stop();
-            setStatus('IDLE');
+            // Status update happens in 'onstop' indirectly via side effects, but we set IDLE here for UI responsiveness
+            // Actually, better to let onstop handle logic, but we must clear timer.
             clearInterval(timerRef.current);
+            setStatus('IDLE'); 
             if (navigator.vibrate) navigator.vibrate([30, 30]);
+            
+            // Queue processing will auto-trigger via the useEffect on `status` change to IDLE
         }
     };
 
@@ -268,7 +304,7 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
                         ${status === 'TX' 
                             ? 'bg-red-600 text-white scale-95 ring-4 ring-red-900 shadow-[0_0_30px_rgba(220,38,38,0.5)]' 
                             : 'bg-emerald-600 hover:bg-emerald-500 text-black ring-4 ring-emerald-900/50 hover:scale-105 active:scale-95'}
-                        ${status === 'RX' ? 'opacity-50 cursor-not-allowed' : ''}
+                        ${status === 'RX' ? 'opacity-50 cursor-not-allowed grayscale' : ''}
                     `}
                     onClick={toggleTx}
                     onTouchStart={(e) => { e.preventDefault(); startTx(); }}
@@ -279,14 +315,14 @@ export const IStokWalkieTalkie: React.FC<IStokWalkieTalkieProps> = ({ onClose, o
                 >
                     <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"></div>
                     <span className="relative z-10 flex items-center justify-center gap-3">
-                        {status === 'TX' ? 'TRANSMITTING...' : 'HOLD TO TALK'}
+                        {status === 'TX' ? 'TRANSMITTING...' : (status === 'RX' ? 'CHANNEL BUSY' : 'HOLD TO TALK')}
                         <Activity size={24} className={status === 'TX' ? 'animate-pulse' : ''} />
                     </span>
                 </button>
 
                 <p className="text-[10px] text-neutral-500 font-mono text-center max-w-xs">
-                    MODE: ASYNC_QUEUE // ENCRYPTION: AES-256-GCM <br/>
-                    GLOBAL SINGLETON AUDIO BUS
+                    MODE: HALF-DUPLEX (ANTI-FEEDBACK) <br/>
+                    {status === 'RX' ? 'INCOMING TRANSMISSION QUEUED' : 'PRESS AND HOLD TO TRANSMIT'}
                 </p>
             </div>
         </div>

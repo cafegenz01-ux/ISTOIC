@@ -49,8 +49,16 @@ class VoiceProcessor {
         this.ambientGain.connect(this.outputNode);
     }
 
+    // iOS Fix: Must be called inside a user interaction handler
+    async ensureRunning() {
+        if (this.ctx.state === 'suspended') {
+            await this.ctx.resume();
+            console.log("AudioContext resumed by user interaction.");
+        }
+    }
+
     unlock() {
-        if (this.ctx.state === 'suspended') this.ctx.resume();
+        this.ensureRunning();
         const buffer = this.ctx.createBuffer(1, 1, 22050);
         const source = this.ctx.createBufferSource();
         source.buffer = buffer;
@@ -59,7 +67,7 @@ class VoiceProcessor {
     }
 
     async initMic(stream: MediaStream) {
-        if (this.ctx.state === 'suspended') await this.ctx.resume();
+        await this.ensureRunning();
         this.micSource = this.ctx.createMediaStreamSource(stream);
         this.micSource.connect(this.filterNode);
         this.filterNode.connect(this.shaperNode);
@@ -204,18 +212,8 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     const engineRef = useRef<VoiceProcessor | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
     
-    // Auto-answer if incoming call provided (triggered from IStokView)
-    useEffect(() => {
-        // Critical: Handle incoming immediately but wait for user to accept via UI usually.
-        // If 'incomingCall' prop is present, it means the user clicked 'Answer' in IStokView (conceptually),
-        // or we are showing the ringing screen. 
-        // Logic: if RINGING, wait. If we auto-transitioned, do answer.
-        // Here we assume TeleponanView opens when the call starts or rings.
-        
-        // No auto-answer on mount to avoid mic permission race conditions.
-        // User must click answer button in this view if it's ringing.
-    }, []);
-
+    // Auto-answer logic removed to force user interaction for AudioContext resume
+    
     // Timer
     useEffect(() => {
         let interval: any;
@@ -235,7 +233,13 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: isolationMode, autoGainControl: true } });
             streamRef.current = stream;
+            
+            // Initialize engine
             engineRef.current = new VoiceProcessor();
+            
+            // CRITICAL: Ensure audio context is running (iOS fix)
+            await engineRef.current.ensureRunning();
+            
             await engineRef.current.initMic(stream);
             return stream;
         } catch (e) {
@@ -248,7 +252,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
     const handleIncomingCall = async (call: any) => {
         callRef.current = call;
         
-        // 1. Get Local Stream FIRST
+        // 1. Get Local Stream FIRST (and resume AudioContext via user interaction)
         const inputStream = await startAudio();
         
         if (inputStream && engineRef.current) {
@@ -287,6 +291,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
         if (!targetId || !existingPeer) return;
         setState('SIGNALING');
         
+        // Ensure AudioContext is running on this user click
         const inputStream = await startAudio();
         
         if (inputStream && engineRef.current) {
@@ -325,11 +330,22 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
         }
     };
 
-    // Auto-start outbound calls
+    // Note: We do NOT auto-call in useEffect to ensure 'makeCall' is triggered by user click in IStokView 
+    // or we add a "Start Call" button here if initialTargetId is set but call hasn't started.
+    // For this implementation, we will auto-start ONLY if it's an outbound flow initiated recently.
+    // However, best practice for iOS is to have a "Start" button in this view.
+    
+    // To fix existing auto-start behavior for outbound:
     useEffect(() => {
         if (initialTargetId && !incomingCall) {
-            // Small delay to ensure rendering happens before permission prompt
-            setTimeout(() => makeCall(), 500);
+            // We need a user gesture to start audio. 
+            // If the user clicked "Call" in the previous screen, that might be enough IF the context was created there.
+            // But VoiceProcessor creates a NEW context here.
+            // So we effectively need a "Connecting..." state that waits for 1 user tap if autoplay fails, 
+            // OR we rely on the fact that 'makeCall' is usually called immediately after a click in the parent component.
+            // BUT: This component is mounted AFTER the click. The context is created on mount.
+            // HACK: We show a "Start Call" button overlay if state is IDLE and target is present.
+            // Changing logic: don't auto-call.
         }
     }, []);
 
@@ -390,6 +406,7 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                     </h2>
                 </div>
 
+                {/* INCOMING CALL ACTIONS */}
                 {state === 'RINGING' && (
                     <div className="flex gap-6">
                         <button onClick={terminateCall} className="p-6 rounded-full bg-red-500 text-white shadow-lg animate-pulse"><PhoneOff size={32}/></button>
@@ -397,6 +414,15 @@ export const TeleponanView: React.FC<TeleponanProps> = ({ onClose, existingPeer,
                     </div>
                 )}
 
+                {/* START OUTBOUND CALL (If Idle/Start) */}
+                {state === 'IDLE' && initialTargetId && (
+                     <button onClick={makeCall} className="p-6 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition-all flex flex-col items-center gap-2">
+                        <Phone size={32} />
+                        <span className="text-[10px] font-black uppercase">START CALL</span>
+                     </button>
+                )}
+
+                {/* CONNECTED CONTROLS */}
                 {state === 'CONNECTED' && (
                     <div className="w-full max-w-sm space-y-6 animate-slide-up pb-8">
                         <WaveformVisualizer analyser={engineRef.current?.analyser || null} isMuted={isMuted} />
