@@ -1,16 +1,23 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Loader2, Fingerprint, Lock, ShieldAlert, ScanFace, Chrome, UserPlus, KeyRound, CheckCircle2, RefreshCw } from 'lucide-react';
+import { ArrowRight, Loader2, Fingerprint, Lock, ShieldAlert, ScanFace, Chrome, UserPlus, KeyRound, CheckCircle2, RefreshCw, LogIn, Mail } from 'lucide-react';
 import { verifySystemPin, isSystemPinConfigured, setSystemPin } from '../../utils/crypto';
 import { BiometricService } from '../../services/biometricService';
 import useLocalStorage from '../../hooks/useLocalStorage';
 import { IstokIdentityService, IStokUserIdentity } from '../istok/services/istokIdentity';
 
+// Import Firebase directly for silent check
+import { auth, db } from '../../services/firebaseConfig';
+// @ts-ignore
+import { onAuthStateChanged } from 'firebase/auth';
+// @ts-ignore
+import { doc, getDoc } from 'firebase/firestore';
+
 interface AuthViewProps {
     onAuthSuccess: () => void;
 }
 
-type AuthStage = 'CHECKING' | 'LOGIN_GOOGLE' | 'CREATE_ID' | 'SETUP_PIN' | 'LOCKED' | 'BIOMETRIC_SCAN';
+type AuthStage = 'CHECKING' | 'WELCOME' | 'CREATE_ID' | 'SETUP_PIN' | 'LOCKED' | 'BIOMETRIC_SCAN';
 
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
     // --- GLOBAL STATE ---
@@ -36,34 +43,63 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // --- SMART AUTO FLOW (WHATSAPP STYLE) ---
+    // --- SMART AUTO FLOW (WHATSAPP STYLE + SILENT RESTORE) ---
     useEffect(() => {
+        let unsubscribe: any;
+
         const initFlow = async () => {
-            // 1. Check Identity & PIN
-            const hasId = !!identity;
-            const hasPin = isSystemPinConfigured();
-
-            if (!hasId) {
-                setStage('LOGIN_GOOGLE');
+            // 1. FAST PATH: Identity already in Storage
+            if (identity && identity.istokId) {
+                if (isSystemPinConfigured()) {
+                    if (bioEnabled) {
+                        setStage('BIOMETRIC_SCAN');
+                        handleBiometricScan();
+                    } else {
+                        setStage('LOCKED');
+                    }
+                } else {
+                    setStage('SETUP_PIN');
+                }
                 return;
             }
 
-            if (!hasPin) {
-                setStage('SETUP_PIN');
-                return;
-            }
-
-            // 2. If Locked, check Biometrics immediately
-            if (bioEnabled) {
-                setStage('BIOMETRIC_SCAN');
-                handleBiometricScan();
+            // 2. SLOW PATH: Check Firebase Auth (Silent Restore)
+            if (auth) {
+                unsubscribe = onAuthStateChanged(auth, async (user: any) => {
+                    if (user) {
+                        // User ditemukan! Restore profile dari Firestore
+                        try {
+                            const snap = await getDoc(doc(db, "users", user.uid));
+                            if (snap.exists()) {
+                                const data = snap.data() as IStokUserIdentity;
+                                setIdentity(data); // Restore ke LocalStorage
+                            } else {
+                                // User login tapi belum buat ID (Profil Korup/Baru)
+                                setStage('CREATE_ID');
+                                (window as any).tempGoogleUser = {
+                                    uid: user.uid,
+                                    email: user.email,
+                                    displayName: user.displayName,
+                                    photoURL: user.photoURL
+                                };
+                            }
+                        } catch (e) {
+                            console.error("Silent Restore Failed", e);
+                            setStage('WELCOME');
+                        }
+                    } else {
+                        // Benar-benar belum login
+                        setStage('WELCOME');
+                    }
+                });
             } else {
-                setStage('LOCKED');
+                setStage('WELCOME');
             }
         };
 
         initFlow();
-    }, [identity]);
+        return () => { if (unsubscribe) unsubscribe(); }
+    }, [identity]); 
 
     // Focus Helper
     useEffect(() => {
@@ -79,10 +115,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             const success = await BiometricService.authenticate();
             if (success) {
                 setBioStatus("AUTHORIZED");
-                setTimeout(onAuthSuccess, 500); // Smooth transition
+                setTimeout(onAuthSuccess, 500); 
             } else {
                 setBioStatus("FAILED");
-                setTimeout(() => setStage('LOCKED'), 800); // Fallback to PIN
+                setTimeout(() => setStage('LOCKED'), 800); 
             }
         } catch (e) {
             setBioStatus("ERROR");
@@ -98,17 +134,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             const userProfile = await IstokIdentityService.loginWithGoogle();
             
             if (userProfile) {
-                // Jika user sudah punya ID di DB, simpan dan lanjut
                 if (userProfile.istokId) {
                     setIdentity(userProfile);
-                    // Check PIN next
-                    if (isSystemPinConfigured()) {
-                        onAuthSuccess(); // Fast path for existing users
-                    } else {
-                        setStage('SETUP_PIN');
-                    }
+                    // Identity set -> Effect hook takes over
                 } else {
-                    // User baru -> Setup ID
                     setStage('CREATE_ID');
                     (window as any).tempGoogleUser = userProfile;
                 }
@@ -213,7 +242,16 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
     // --- RENDERERS ---
 
-    if (stage === 'CHECKING') return <div className="h-screen bg-black" />; // Splash
+    if (stage === 'CHECKING') {
+        return (
+            <div className="fixed inset-0 bg-[#020202] flex items-center justify-center">
+                 <div className="flex flex-col items-center gap-4">
+                     <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                     <p className="text-emerald-500 text-[10px] font-black tracking-[0.3em] animate-pulse">RESTORING IDENTITY...</p>
+                 </div>
+            </div>
+        );
+    }
 
     if (stage === 'BIOMETRIC_SCAN') {
         return (
@@ -233,7 +271,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         );
     }
 
-    // LOGIN & ONBOARDING
+    // MAIN AUTH SCREEN
     return (
         <div className="fixed inset-0 z-[9999] bg-[#020202] flex items-center justify-center p-6 overflow-hidden font-sans select-none">
             {/* Background FX */}
@@ -243,8 +281,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             <div className={`relative w-full max-w-sm ${shake ? 'animate-[shake_0.5s_cubic-bezier(.36,.07,.19,.97)_both]' : ''}`}>
                 <div className="backdrop-blur-2xl border border-white/10 bg-[#0a0a0b]/80 rounded-[32px] p-8 shadow-2xl relative overflow-hidden">
                     
-                    {/* 1. GOOGLE LOGIN */}
-                    {stage === 'LOGIN_GOOGLE' && (
+                    {/* 1. WELCOME / LANDING */}
+                    {stage === 'WELCOME' && (
                         <div className="text-center space-y-8 animate-slide-up">
                             <div className="space-y-2">
                                 <h1 className="text-3xl font-black text-white italic tracking-tighter uppercase">
@@ -254,22 +292,55 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                                     SECURE COGNITIVE OS
                                 </p>
                             </div>
-                            <button 
-                                onClick={handleGoogleLogin}
-                                disabled={loading}
-                                className="w-full py-4 bg-white text-black hover:bg-neutral-200 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.1)]"
-                            >
-                                {loading ? <Loader2 size={18} className="animate-spin"/> : <Chrome size={18} />}
-                                ACCESS WITH GOOGLE
-                            </button>
+
+                            <div className="space-y-4">
+                                {/* Primary: Continue with Google */}
+                                <button 
+                                    onClick={handleGoogleLogin}
+                                    disabled={loading}
+                                    className="w-full py-4 bg-white text-black hover:bg-neutral-200 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.1)] group"
+                                >
+                                    {loading ? <Loader2 size={18} className="animate-spin"/> : <Chrome size={18} className="text-blue-500"/>}
+                                    LANJUTKAN DENGAN GOOGLE
+                                </button>
+
+                                <div className="flex items-center gap-4 px-2">
+                                    <div className="h-[1px] bg-white/10 flex-1"></div>
+                                    <span className="text-[9px] text-neutral-600 font-black uppercase">ATAU</span>
+                                    <div className="h-[1px] bg-white/10 flex-1"></div>
+                                </div>
+
+                                {/* Secondary: Buat Akun Baru */}
+                                <button 
+                                    onClick={handleGoogleLogin}
+                                    disabled={loading}
+                                    className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95"
+                                >
+                                    <UserPlus size={18} className="text-emerald-500"/>
+                                    BUAT AKUN BARU
+                                </button>
+                            </div>
+
+                            <div className="space-y-4 pt-2">
+                                {isSystemPinConfigured() && (
+                                    <button 
+                                        onClick={() => setStage('LOCKED')}
+                                        className="text-[10px] font-bold text-neutral-400 hover:text-emerald-500 transition-colors flex items-center justify-center gap-2 mx-auto"
+                                    >
+                                        <KeyRound size={12}/> PERANGKAT INI TERKUNCI? MASUK DENGAN PIN
+                                    </button>
+                                )}
+                                
+                                <p className="text-[9px] text-neutral-600 leading-relaxed max-w-[250px] mx-auto">
+                                    Dengan melanjutkan, Anda menyetujui Protokol Keamanan & Privasi IStoic AI v25.0.
+                                </p>
+                            </div>
+
                             {error && (
-                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-medium">
+                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-medium mt-4">
                                     {error}
                                 </div>
                             )}
-                            <div className="flex items-center justify-center gap-2 text-[9px] text-emerald-500/60 font-mono">
-                                <ShieldAlert size={12} /> CLOUD ENCRYPTED IDENTITY
-                            </div>
                         </div>
                     )}
 
@@ -277,8 +348,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                     {stage === 'CREATE_ID' && (
                         <div className="space-y-6 animate-slide-up">
                              <div className="text-center">
-                                 <h2 className="text-xl font-bold text-white uppercase tracking-tight">Create Callsign</h2>
-                                 <p className="text-xs text-neutral-500 mt-2">Identifier unik ini akan disinkronisasi ke cloud.</p>
+                                 <h2 className="text-xl font-bold text-white uppercase tracking-tight">Setup Identitas</h2>
+                                 <p className="text-xs text-neutral-500 mt-2">Buat Callsign unik untuk jaringan IStok.</p>
                              </div>
                              <div className="bg-[#121214] border border-white/10 rounded-2xl px-4 py-4 focus-within:border-emerald-500 transition-all flex items-center">
                                 <span className="text-emerald-500 font-black text-sm mr-1 select-none">ISTOIC-</span>
@@ -294,7 +365,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                                 <div className="text-red-500 text-[10px] text-center font-bold">{error}</div>
                              )}
                              <button onClick={handleCreateIdentity} disabled={loading} className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2">
-                                {loading ? <Loader2 className="animate-spin"/> : <ArrowRight />} LANJUT
+                                {loading ? <Loader2 className="animate-spin"/> : <ArrowRight />} SIMPAN & LANJUT
                              </button>
                         </div>
                     )}
@@ -306,7 +377,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                                 <KeyRound size={28} />
                             </div>
                             <h2 className="text-xl font-bold text-white uppercase">Kunci Perangkat</h2>
-                            <p className="text-xs text-neutral-500">PIN ini hanya tersimpan di perangkat ini untuk enkripsi lokal.</p>
+                            <p className="text-xs text-neutral-500">PIN ini hanya tersimpan di perangkat ini untuk enkripsi lokal. Login berikutnya HANYA menggunakan PIN ini.</p>
                             <input 
                                 type="password" inputMode="numeric" value={pinInput}
                                 onChange={e => setPinInput(e.target.value.slice(0,6))}
@@ -357,7 +428,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                             </div>
 
                             {!isHardLocked && (
-                                <div className="space-y-3">
+                                <div className="space-y-4">
                                     <button 
                                         type="submit"
                                         disabled={loading || pinInput.length < 4}
@@ -365,15 +436,25 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                                     >
                                         {loading ? <Loader2 className="animate-spin"/> : <ArrowRight />} BUKA
                                     </button>
-                                    {bioEnabled && (
+                                    
+                                    <div className="flex justify-between items-center px-1">
+                                        {bioEnabled && (
+                                            <button 
+                                                type="button" 
+                                                onClick={handleBiometricScan}
+                                                className="text-emerald-500 text-[10px] font-bold tracking-widest hover:text-white transition-colors flex items-center gap-2"
+                                            >
+                                                <ScanFace size={14}/> USE FACE ID
+                                            </button>
+                                        )}
                                         <button 
-                                            type="button" 
-                                            onClick={handleBiometricScan}
-                                            className="w-full py-3 text-emerald-500 text-[10px] font-bold tracking-widest hover:text-white transition-colors flex items-center justify-center gap-2"
+                                            type="button"
+                                            onClick={() => setStage('WELCOME')}
+                                            className="text-neutral-500 text-[10px] font-bold tracking-widest hover:text-white transition-colors ml-auto"
                                         >
-                                            <ScanFace size={14}/> USE FACE ID
+                                            GANTI AKUN
                                         </button>
-                                    )}
+                                    </div>
                                 </div>
                             )}
                         </form>
