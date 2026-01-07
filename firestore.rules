@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,6 +12,14 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
+    // Rate Limiting Logic: 
+    // Allow update ONLY IF count < 2 OR last change was > 30 days ago.
+    function isWithinRateLimit() {
+      let isResetting = request.time > resource.data.lastIdChange + duration.value(30, 'd');
+      let isUnderLimit = resource.data.idChangeCount < 2;
+      return isResetting || isUnderLimit;
+    }
+
     // Aturan untuk Koleksi Users
     match /users/{userId} {
       // Baca: Hanya pemilik akun
@@ -19,14 +28,11 @@ service cloud.firestore {
       // Buat: Authenticated user bisa membuat profil mereka sendiri
       allow create: if isAuthenticated() && isOwner(userId);
       
-      // Update: Pemilik akun, dengan validasi field
+      // Update: Pemilik akun, dengan validasi field & RATE LIMITING
       allow update: if isAuthenticated() && isOwner(userId) 
         && request.resource.data.uid == userId // UID tidak boleh berubah
-        && request.resource.data.email == resource.data.email; // Email tidak boleh berubah
-        
-        // Catatan: Logika limitasi waktu 2x sebulan sebaiknya divalidasi juga di sini 
-        // jika ingin sangat ketat, atau gunakan Cloud Functions untuk 'gatekeeping'.
-        // Untuk MVP ini, validasi di client + aturan dasar kepemilikan sudah aman dari akses orang lain.
+        && request.resource.data.email == resource.data.email // Email tidak boleh berubah
+        && isWithinRateLimit(); // SERVER-SIDE VALIDATION
     }
     
     // Deny all others by default

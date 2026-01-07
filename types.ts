@@ -1,12 +1,14 @@
 
+// ... existing types ...
+
 export interface Note {
   id: string;
   title: string;
   content: string;
   tags: string[];
-  created: string; // PB uses 'created'
-  updated: string; // PB uses 'updated'
-  is_pinned?: boolean; // PB conventions usually snake_case
+  created: string; 
+  updated: string; 
+  is_pinned?: boolean; 
   is_archived?: boolean;
   tasks?: TaskItem[];
   user?: string;
@@ -23,9 +25,9 @@ export interface ChatThread {
   id: string;
   title: string;
   persona: 'hanisah' | 'stoic';
-  model_id: string; // Changed to match PB field
+  model_id: string; 
   messages: ChatMessage[];
-  updated: string; // PB uses 'updated'
+  updated: string; 
   isPinned?: boolean;
   user?: string;
 }
@@ -66,8 +68,24 @@ export interface ModelMetadata {
   description: string;
   specs: { 
       context: string; 
-      contextLimit: number; // Numeric limit for token calculation
+      contextLimit: number; 
       speed: 'INSTANT' | 'FAST' | 'THINKING' | 'DEEP'; 
       intelligence: number; 
   }
+}
+
+// --- NEW STRICT TYPES FOR P2P ---
+export interface IncomingConnection {
+  conn: any; // PeerJS DataConnection (kept as any for lazy loading, but typed at boundary)
+  firstData: any; // The handshake payload
+  status: 'HANDSHAKING' | 'READY';
+}
+
+export interface GlobalPeerState {
+  peer: any; // PeerJS instance
+  isPeerReady: boolean;
+  peerId: string | null;
+  incomingConnection: IncomingConnection | null;
+  clearIncoming: () => void;
+  forceReconnect: () => void;
 }

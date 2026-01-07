@@ -10,7 +10,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import useLocalStorage from './hooks/useLocalStorage';
 import { useIDB } from './hooks/useIDB'; 
 import { useChatLogic } from './features/aiChat/hooks/useChatLogic';
-import { type Note } from './types';
+import { type Note, type IncomingConnection, type GlobalPeerState } from './types';
 import { DebugConsole } from './components/DebugConsole';
 import { debugService } from './services/debugService';
 import { KEY_MANAGER } from './services/geminiService';
@@ -62,10 +62,10 @@ interface AppContentProps {
     notes: Note[];
     setNotes: (notes: Note[]) => void;
     onOpenTeleponan: () => void;
-    // New Props for Global IStok
-    globalPeer: any;
-    incomingRequest: any;
-    onAcceptRequest: (req: any) => void;
+    // Strictly typed props
+    globalPeer: any; // PeerJS instance remains any to avoid heavy lib import in types, but handled in hooks
+    incomingRequest: IncomingConnection | null;
+    onAcceptRequest: (req: IncomingConnection) => void;
     onDeclineRequest: () => void;
 }
 
@@ -302,9 +302,9 @@ const App: React.FC = () => {
     const { peer, incomingConnection, clearIncoming } = useGlobalPeer(identity);
     
     // --- GLOBAL CONNECTION HANDLER ---
-    const [acceptedConnection, setAcceptedConnection] = useState<any>(null);
+    const [acceptedConnection, setAcceptedConnection] = useState<IncomingConnection | null>(null);
 
-    const handleAcceptConnection = async (request: any) => {
+    const handleAcceptConnection = async (request: IncomingConnection) => {
         setAcceptedConnection(request);
         setSessionMode('ISTOK'); // Switch to IStok View
         clearIncoming(); // Clear notification
