@@ -11,7 +11,7 @@ interface KeyRecord {
   status: KeyStatus;
   fails: number;
   cooldownUntil: number;
-  id: string; // Unique ID for tracking
+  id: string; 
 }
 
 export interface ProviderStatus {
@@ -23,7 +23,6 @@ export interface ProviderStatus {
 
 export class HydraVault {
   private vault: Record<string, KeyRecord[]> = {};
-  // V20 ROUND ROBIN COUNTERS
   private counters: Record<string, number> = {};
 
   constructor() {
@@ -31,12 +30,11 @@ export class HydraVault {
   }
 
   public refreshPools() {
-    // Vite exposes env vars on import.meta.env
     const viteEnv = (import.meta as any).env || {};
-    // Process env injected via vite.config.ts define
-    const procEnv = (typeof process !== 'undefined' && process.env) ? process.env : {};
-
     const providers: Provider[] = ['GEMINI', 'GROQ', 'OPENAI', 'DEEPSEEK', 'MISTRAL', 'OPENROUTER', 'ELEVENLABS', 'HUGGINGFACE'];
+
+    // Check if we should enable Server-Managed Mode (Production Security)
+    const useSecureBackend = viteEnv.VITE_USE_SECURE_BACKEND === 'true' || (typeof process !== 'undefined' && process.env.VITE_USE_SECURE_BACKEND === 'true');
 
     providers.forEach(provider => {
         const keys = new Set<string>(); 
@@ -49,20 +47,15 @@ export class HydraVault {
             });
         };
 
-        // 1. Check VITE_ prefix (Standard Vite)
+        // 1. Check Local Dev Keys (VITE_ prefix only)
         addKey(viteEnv[`VITE_${provider}_API_KEY`]);
         
-        // 2. Check Direct Name (Injected via define or Server-Side)
-        addKey(viteEnv[`${provider}_API_KEY`]);
-        addKey(procEnv[`${provider}_API_KEY`]);
-        
-        // Special mappings
-        if (provider === 'GEMINI') {
-            addKey(viteEnv['VITE_GOOGLE_API_KEY']);
-        }
-        if (provider === 'HUGGINGFACE') {
-            addKey(viteEnv['VITE_HF_TOKEN']);
-            addKey(procEnv['HF_TOKEN']);
+        // 2. SECURITY UPGRADE:
+        // If no local keys found AND we are in Secure Mode, inject a "Virtual Key".
+        // This tells the engine: "Don't crash, the Server has the keys."
+        if (keys.size === 0 && useSecureBackend) {
+            keys.add('server-side-managed');
+            debugService.log('KERNEL', 'HYDRA', 'SECURE_MODE', `Routing ${provider} to Backend Proxy.`);
         }
 
         this.vault[provider] = Array.from(keys).map((k, index) => ({
@@ -74,58 +67,51 @@ export class HydraVault {
             id: `${provider}_${index}`
         }));
         
-        // Initialize counter for Round Robin if not exists
         if (this.counters[provider] === undefined) {
             this.counters[provider] = 0;
         }
     });
     
     const totalKeys = Object.values(this.vault).flat().length;
-    debugService.log('KERNEL', 'HYDRA_V20', 'INIT', `Titanium Vault Locked. ${totalKeys} keys engaged in Round-Robin.`);
+    // debugService.log('KERNEL', 'HYDRA_V20', 'INIT', `Vault Locked. ${totalKeys} active paths.`);
   }
 
-  /**
-   * V20 ROUND ROBIN STRATEGY
-   * Ensures perfect rotation. Key 1 -> Key 2 -> Key 3 -> Key 1
-   */
   public getKey(provider: Provider): string | null {
     const pool = this.vault[provider];
-    if (!pool || pool.length === 0) {
-        // Try one last refresh attempt if empty
-        // this.refreshPools(); 
-        // return null;
-        return null;
-    }
+    if (!pool || pool.length === 0) return null;
 
     const now = Date.now();
     
-    // 1. Auto-Heal Cooldowns
+    // Auto-Heal
     pool.forEach(k => {
         if (k.status === 'COOLDOWN' && k.cooldownUntil <= now) {
             k.status = 'ACTIVE';
             k.fails = 0;
-            debugService.log('INFO', 'HYDRA_HEAL', 'RECOVER', `Key ${k.id} recovered from cooldown.`);
         }
     });
 
     const activeKeys = pool.filter((k) => k.status === 'ACTIVE');
     
     if (activeKeys.length === 0) {
-        debugService.log('WARN', 'HYDRA_FAIL', 'DEPLETED', `All keys for ${provider} are in cooldown.`);
         return null; 
     }
 
-    // 2. Round Robin Selection
+    // Round Robin
     let currentIndex = this.counters[provider] % activeKeys.length;
     const selectedKey = activeKeys[currentIndex];
-
-    // Increment for next time
     this.counters[provider] = (currentIndex + 1) % activeKeys.length;
 
     return SECURITY_MATRIX.decloak(selectedKey.cloakedKey);
   }
 
   public reportFailure(provider: Provider, plainKeyString: string, error: any): void {
+    // If it's a server-side managed key, we don't penalize it locally, 
+    // but we log the backend failure.
+    if (plainKeyString === 'server-side-managed') {
+         debugService.log('ERROR', 'BACKEND_PROXY', 'FAIL', `${provider} request failed on server.`);
+         return;
+    }
+
     const pool = this.vault[provider];
     const searchHash = SECURITY_MATRIX.cloak(plainKeyString);
     const record = pool?.find((k) => k.cloakedKey === searchHash);
@@ -134,23 +120,20 @@ export class HydraVault {
     record.fails++;
     record.status = 'COOLDOWN';
     
-    // SMART PENALTY V20
     const errStr = JSON.stringify(error).toLowerCase();
-    let penaltyMs = 30000; // Default 30s
+    let penaltyMs = 30000;
 
     if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('limit')) {
-        penaltyMs = 300000; // 5 mins
+        penaltyMs = 300000; 
     } else if (errStr.includes('503') || errStr.includes('overloaded')) {
-        penaltyMs = 60000; // 1 min
+        penaltyMs = 60000;
     }
     
     record.cooldownUntil = Date.now() + penaltyMs;
-    
-    debugService.log('WARN', 'HYDRA_PENALTY', 'COOLDOWN', `${provider} Key ${record.id} penalized for ${penaltyMs/1000}s.`);
   }
 
   public reportSuccess(provider: Provider) {
-      // V20: Success keeps the key healthy.
+      // Success keeps key healthy
   }
 
   public isProviderHealthy(provider: Provider): boolean {

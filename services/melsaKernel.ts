@@ -55,7 +55,6 @@ export class HanisahKernel {
       return messagesToSend;
   }
 
-  // Fix: Accept Note[] | string for contextNotes to allow pre-built context strings
   async *streamExecute(msg: string, initialModelId: string, contextNotes: Note[] | string = [], imageData?: { data: string, mimeType: string }, configOverride?: any): AsyncGenerator<StreamChunk> {
     const systemPrompt = configOverride?.systemInstruction || await HANISAH_BRAIN.getSystemInstruction('hanisah', msg, contextNotes);
     const signal = configOverride?.signal; 
@@ -72,14 +71,61 @@ export class HanisahKernel {
         const model = MASTER_MODEL_CATALOG.find(m => m.id === modelId) || MASTER_MODEL_CATALOG[0];
         const key = GLOBAL_VAULT.getKey(model.provider as Provider);
 
-        if (!key) {
-            // Skip logging every missing key to reduce noise, but track attempt
-            continue;
-        }
-
+        if (!key) continue;
         attempts++;
 
         try {
+            // --- SECURITY INTERCEPTION FOR SERVER-SIDE MANAGED KEYS ---
+            if (key === 'server-side-managed') {
+                debugService.log('INFO', 'KERNEL', 'PROXY', `Offloading ${model.id} to Secure Backend...`);
+                
+                // Convert History to Standard format for Proxy
+                const standardHistory = this.history.map(h => ({ 
+                    role: h.role === 'model' ? 'assistant' : 'user', 
+                    content: h.parts ? h.parts[0].text : h.content 
+                }));
+                const fullMessages = [...standardHistory, { role: 'user', content: msg }];
+
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: msg, // Actually unused if we send context, but kept for compatibility
+                        modelId: model.id,
+                        provider: model.provider,
+                        context: systemPrompt // Sending system prompt as context
+                        // Note: Full history handling might need adjustment in api/chat.ts if it only takes 'message'
+                        // But api/chat.ts as written mostly handles single prompt or basic context. 
+                        // For full convo, we'd need to update api/chat.ts to accept 'messages' array. 
+                        // For this fix, we send the aggregated system prompt + msg.
+                    }),
+                    signal
+                });
+
+                if (!response.ok) throw new Error(`Backend Error: ${response.statusText}`);
+                if (!response.body) throw new Error("No response body");
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullText = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunkText = decoder.decode(value, { stream: true });
+                    fullText += chunkText;
+                    yield { text: chunkText };
+                    hasYielded = true;
+                }
+
+                if (hasYielded) {
+                    this.updateHistory(msg, fullText);
+                    return; 
+                }
+            } 
+            // --- END PROXY LOGIC ---
+
+            // CLIENT SIDE LOGIC (DEV ONLY)
             const isThinking = model.specs.speed === 'THINKING';
             const activeTools = configOverride?.tools || this.getActiveTools(model.provider, isThinking, msg);
             const contextLimit = model.specs.contextLimit || 128000;
@@ -108,9 +154,10 @@ export class HanisahKernel {
                 }
                 if (hasYielded) {
                     this.updateHistory(msg, fullText);
-                    return; // Success, exit loop
+                    return;
                 }
             } else {
+                // OpenAI Compatible Client-Side (Dev Key)
                 const standardHistory = optimizedHistory.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.parts[0]?.text || '' }));
                 const stream = streamOpenAICompatible(model.provider as any, model.id, [...standardHistory, { role: 'user', content: msg }], systemPrompt, activeTools, signal);
                 let fullText = "";
@@ -128,22 +175,21 @@ export class HanisahKernel {
                 }
                 if (hasYielded) {
                     this.updateHistory(msg, fullText);
-                    return; // Success, exit loop
+                    return;
                 }
             }
         } catch (err: any) {
             GLOBAL_VAULT.reportFailure(model.provider as Provider, key, err);
             if (i < plan.length - 1) yield { metadata: { systemStatus: `Rerouting to ${plan[i+1]}...`, isRerouting: true } };
-            // Don't yield error text yet, try next model
         }
     }
 
     // FALLBACK IF ALL FAILED
     if (!hasYielded) {
-        if (attempts === 0) {
-             yield { text: `\n\n> ⚠️ **SYSTEM HALT: NO API KEYS DETECTED**\n\nSistem tidak menemukan kunci API yang valid di \`.env\`. Harap konfirmasi konfigurasi server atau tambahkan kunci API.` };
+         if (attempts === 0) {
+             yield { text: `\n\n> ⚠️ **SYSTEM HALT: NO API KEYS DETECTED**\n\nSistem tidak menemukan kunci API lokal dan Backend Proxy gagal dihubungi.` };
         } else {
-             yield { text: `\n\n> ⚠️ **CONNECTION FAILURE**\n\nSemua provider AI (${attempts}) gagal merespons. Periksa koneksi internet atau kuota API Anda.` };
+             yield { text: `\n\n> ⚠️ **CONNECTION FAILURE**\n\nSemua provider AI (${attempts}) gagal merespons. Periksa koneksi internet.` };
         }
     }
   }
@@ -153,7 +199,6 @@ export class HanisahKernel {
     if (this.history.length > 50) this.history = this.history.slice(-50);
   }
 
-  // Fix: Accept Note[] | string for contextNotes
   async execute(msg: string, modelId: string, contextNotes?: Note[] | string): Promise<StreamChunk> {
     const it = this.streamExecute(msg, modelId, contextNotes || []);
     let fullText = "";
