@@ -62,7 +62,7 @@ interface AppContentProps {
 
 const AppContent: React.FC<AppContentProps> = ({ notes, setNotes }) => {
   const [activeFeature, setActiveFeature] = useState<FeatureID>('dashboard');
-  const [isPending, startTransition] = useTransition(); // Concurrent Mode for Smooth Nav
+  const [isPending, startTransition] = useTransition(); 
 
   const [isTutorialComplete, setIsTutorialComplete] = useLocalStorage<boolean>('app_tutorial_complete_v101', false);
   const [theme] = useLocalStorage<string>('app_theme', 'cyan');
@@ -203,12 +203,6 @@ const AppContent: React.FC<AppContentProps> = ({ notes, setNotes }) => {
           />
           
           <main className="flex-1 relative h-full w-full bg-transparent min-w-0 flex flex-col">
-            {/* 
-                CRITICAL SCROLL FIX:
-                This container is FIXED height (h-full) and HIDDEN overflow.
-                Each View (Dashboard, Chat, etc) MUST manage its own scrolling.
-                This prevents double scrollbars and "ghost scrolling" during transitions.
-            */}
             <div className="flex-1 w-full h-full overflow-hidden relative">
                 {renderContent()}
             </div>
@@ -239,7 +233,6 @@ const AppContent: React.FC<AppContentProps> = ({ notes, setNotes }) => {
   );
 };
 
-// --- ROOT APP CONTROLLER ---
 type SessionMode = 'AUTH' | 'SELECT' | 'ISTOIC' | 'ISTOK' | 'TELEPONAN';
 
 const App: React.FC = () => {

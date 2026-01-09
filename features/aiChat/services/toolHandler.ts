@@ -14,188 +14,202 @@ export const executeNeuralTool = async (
 ): Promise<string> => {
     const { name, args } = fc;
     
-    // --- 1. NOTE MANAGEMENT ---
+    // --- 1. NOTE MANAGEMENT (GENIUS LOGIC V2) ---
     if (name === 'manage_note') {
-        const { action, id, title, content, appendContent, tags, taskContent, taskAction, taskDueDate } = args;
+        const { action, id, title, content, appendContent, tags, taskContent, taskAction, taskDueDate, query } = args;
         let updatedNotes = [...notes];
 
+        // A. CREATE (Smart Inference)
         if (action === 'CREATE') {
+            // Logika Jenius: Jika title/content kosong, generate default yang berguna
+            const finalTitle = title || `Quick Note ${new Date().toLocaleTimeString()}`;
+            const finalContent = content || "_(Empty note initialized. Ready for input.)_";
+            
             const newNote: Note = {
                 id: uuidv4(),
-                title: title || 'New Entry',
-                content: content || '',
-                tags: tags || [],
+                title: finalTitle,
+                content: finalContent,
+                tags: tags || ['QUICK_LOG'],
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
                 tasks: [],
                 is_pinned: false,
                 is_archived: false
             };
+            
+            // Jika ada task langsung ditambahkan
+            if (taskContent) {
+                newNote.tasks?.push({ id: uuidv4(), text: taskContent, isCompleted: false });
+            }
+
             setNotes([newNote, ...updatedNotes]);
-            return `SUCCESS: Created note "${newNote.title}" (ID: ${newNote.id}).`;
+            
+            // Background Indexing
+            VectorDB.indexNotes([newNote]).catch(console.error);
+
+            // Output Markdown Card (Cantik & Rapi)
+            return `> ✅ **NOTE SECURED**\n> **Ref:** ${finalTitle}\n> **ID:** \`${newNote.id.slice(0,6)}\`\n> *Disimpan di Local Vault.*`;
         }
 
-        if (action === 'UPDATE' && id) {
-            const noteIndex = updatedNotes.findIndex(n => n.id === id);
-            if (noteIndex === -1) return `ERROR: Note ID ${id} not found.`;
-
-            let actionStatus = "Updated";
-            const note = updatedNotes[noteIndex];
+        // B. SEARCH (Hybrid & Deep)
+        if (action === 'SEARCH') {
+            if (!query) return "> ⚠️ **SEARCH ERROR**: Parameter query kosong.";
             
+            const q = query.toLowerCase();
+            let matches: Note[] = [];
+            let method = "KEYWORD";
+
+            // 1. Semantic Search (Prioritas)
+            try {
+                const vectorIds = await VectorDB.search(q, 5);
+                if (vectorIds.length > 0) {
+                    const vectorMatches = notes.filter(n => vectorIds.includes(n.id));
+                    if (vectorMatches.length > 0) {
+                        matches = vectorMatches;
+                        method = "NEURAL";
+                    }
+                }
+            } catch (e) {}
+
+            // 2. Keyword Fallback
+            if (matches.length === 0) {
+                matches = notes.filter(n => 
+                    n.title.toLowerCase().includes(q) || 
+                    n.content.toLowerCase().includes(q) ||
+                    n.tags?.some(t => t.toLowerCase().includes(q))
+                ).slice(0, 5);
+                method = "EXACT";
+            }
+
+            if (matches.length === 0) return `> 🔍 **NO TRACE FOUND**\n> Tidak ada catatan yang cocok dengan "${query}".`;
+
+            const list = matches.map(n => 
+                `- **${n.title}** (ID: \`${n.id}\`)\n  _${n.content.slice(0, 60).replace(/\n/g, ' ')}..._`
+            ).join('\n');
+
+            return `> 🔍 **VAULT RESULTS** (${method})\n\n${list}\n\n_Gunakan ID untuk edit/baca lengkap._`;
+        }
+
+        // C. UPDATE / APPEND (Precise)
+        if ((action === 'UPDATE' || action === 'APPEND') && id) {
+            const noteIndex = updatedNotes.findIndex(n => n.id === id);
+            
+            // Jika ID salah, coba cari by title (Smart Fallback)
+            if (noteIndex === -1) {
+                // Logic tambahan: Auto-search jika ID tidak valid tapi user memberikan judul
+                const fallbackNote = title ? updatedNotes.find(n => n.title.toLowerCase().includes(title.toLowerCase())) : null;
+                if (!fallbackNote) return `> ❌ **TARGET MISSING**: Note ID \`${id}\` tidak ditemukan.`;
+                // Jika ketemu via judul, update recursive dengan ID yang benar
+                return executeNeuralTool({ ...fc, args: { ...args, id: fallbackNote.id } }, notes, setNotes, imageModelPreference);
+            }
+
+            const note = updatedNotes[noteIndex];
+            let changesLog = [];
+
+            // Content Logic
+            let finalContent = note.content;
+            if (action === 'APPEND' && appendContent) {
+                finalContent = `${note.content}\n\n${appendContent}`;
+                changesLog.push("Append Data");
+            } else if (content !== undefined) {
+                finalContent = content;
+                changesLog.push("Rewrite Data");
+            }
+
             // Task Logic
             let noteTasks = [...(note.tasks || [])];
             if (taskAction === 'ADD' && taskContent) {
                 noteTasks.push({ id: uuidv4(), text: taskContent, isCompleted: false, dueDate: taskDueDate });
-                actionStatus = "Task added";
-            } else if (taskAction === 'TOGGLE' && taskContent) {
-                const targetTask = noteTasks.find(t => t.text.toLowerCase().includes(taskContent.toLowerCase()));
-                if (targetTask) {
-                    targetTask.isCompleted = !targetTask.isCompleted;
-                    actionStatus = "Task toggled";
-                }
+                changesLog.push("Add Task");
             }
 
-            // Safe Merge
             updatedNotes[noteIndex] = {
                 ...note,
-                title: title !== undefined ? title : note.title,
-                content: content !== undefined ? content : note.content,
-                tags: tags !== undefined ? tags : note.tags,
+                title: title || note.title,
+                content: finalContent,
+                tags: tags || note.tags,
                 tasks: noteTasks,
                 updated: new Date().toISOString()
             };
             
             setNotes(updatedNotes);
-            return `SUCCESS: ${actionStatus} on note "${updatedNotes[noteIndex].title}".`;
+            VectorDB.indexNotes([updatedNotes[noteIndex]]).catch(console.error);
+
+            return `> 🔄 **UPDATE SUCCESS**\n> **Target:** ${note.title}\n> **Ops:** ${changesLog.join(', ')}`;
         }
 
-        if (action === 'APPEND' && id && appendContent) {
-            const noteIndex = updatedNotes.findIndex(n => n.id === id);
-            if (noteIndex === -1) return `ERROR: Note ID ${id} not found.`;
-            
-            const note = updatedNotes[noteIndex];
-            const newContent = note.content 
-                ? `${note.content}\n\n${appendContent}` 
-                : appendContent;
-            
-            updatedNotes[noteIndex] = {
-                ...note,
-                content: newContent,
-                updated: new Date().toISOString()
-            };
-            setNotes(updatedNotes);
-            return `SUCCESS: Appended content to "${note.title}".`;
-        }
-
+        // D. DELETE
         if (action === 'DELETE' && id) {
+            const target = updatedNotes.find(n => n.id === id);
+            if (!target) return `> ❌ **ERROR**: ID Salah.`;
+            
             setNotes(updatedNotes.filter(n => n.id !== id));
-            return `SUCCESS: Note ${id} deleted permanently.`;
+            return `> 🗑️ **DELETED**: "${target.title}" dihapus permanen.`;
         }
     }
 
-    // --- 2. INTELLIGENT RETRIEVAL (Hybrid RAG) ---
-    if (name === 'search_notes') {
-        const query = args.query.toLowerCase();
-        let matches: Note[] = [];
-        let searchMethod = "KEYWORD";
-
-        // Try Semantic Vector Search first
-        try {
-            const vectorIds = await VectorDB.search(query, 5);
-            if (vectorIds.length > 0) {
-                const vectorMatches = notes.filter(n => vectorIds.includes(n.id));
-                if (vectorMatches.length > 0) {
-                    matches = vectorMatches;
-                    searchMethod = "SEMANTIC_VECTOR";
-                }
-            }
-        } catch (e) {
-            console.warn("Vector search unavailable, falling back to keyword.", e);
-        }
-
-        // Fallback to Keyword
-        if (matches.length === 0) {
-            matches = notes.filter(n => 
-                n.title.toLowerCase().includes(query) || 
-                n.content.toLowerCase().includes(query) ||
-                n.tags?.some(t => t.toLowerCase().includes(query))
-            ).slice(0, 5);
-        }
-
-        if (matches.length === 0) return "SEARCH_RESULT: No matching notes found in vault.";
-
-        const resultStr = matches.map(n => 
-            `- ID: ${n.id}\n  Title: ${n.title}\n  Snippet: ${n.content.slice(0, 150).replace(/\n/g, ' ')}...`
-        ).join('\n');
-
-        return `[METHOD: ${searchMethod}] SEARCH_RESULT:\n${resultStr}\n\n(Use 'read_note' with ID to see full content)`;
-    }
-
+    // --- 2. READ SPECIFIC NOTE (Formatted) ---
     if (name === 'read_note') {
         const note = notes.find(n => n.id === args.id);
-        if (!note) return "ERROR: Note ID not found.";
+        if (!note) return "> ❌ **READ ERROR**: Akses ditolak atau ID salah.";
         
-        const cleanContent = note.content.replace(/<[^>]*>/g, '');
-        const tasksStr = note.tasks?.map(t => `[${t.isCompleted ? 'x' : ' '}] ${t.text}`).join('\n') || "No tasks";
+        const tasksStr = note.tasks?.map(t => `[${t.isCompleted ? 'x' : ' '}] ${t.text}`).join('\n') || "No active tasks.";
 
-        return JSON.stringify({
-            id: note.id,
-            title: note.title,
-            content: cleanContent,
-            tags: note.tags,
-            tasks: tasksStr,
-            last_updated: note.updated
-        }, null, 2);
+        return `
+**📂 FILE: ${note.title}**
+\`ID: ${note.id}\` | \`Updated: ${new Date(note.updated).toLocaleString()}\`
+***
+${note.content}
+***
+**TASKS:**
+${tasksStr}
+
+**TAGS:** \`[${note.tags?.join('] [') || 'NONE'}]\`
+`;
     }
 
-    // --- 3. VISUAL GENERATION (ENHANCED HYDRA & FALLBACK) ---
+    // --- 3. VISUAL GENERATION (Robust) ---
     if (name === 'generate_visual') {
         try {
             const prompt = args.prompt;
             let imgUrl: string | null = null;
-            let providerInfo = "";
-            let modelInfo = "";
+            let engineName = "HYDRA";
 
-            // Logic A: Use Gemini (if requested explicitly AND allowed)
+            // Prioritize Gemini if configured/available
             if (imageModelPreference.includes('gemini')) {
                 try {
                     imgUrl = await generateImage(prompt, imageModelPreference);
-                    if (imgUrl) {
-                        providerInfo = "Google DeepMind";
-                        modelInfo = "Imagen 3 (Fast)";
-                    }
-                } catch (geminiError: any) {
-                    console.warn("Gemini Image Gen Failed, switching to Hydra.", geminiError.message);
-                    // FALLTHROUGH TO HYDRA logic below
+                    if (imgUrl) engineName = "IMAGEN 3";
+                } catch (geminiError) {
+                    console.warn("Gemini fail, fallback to Hydra");
                 }
             }
             
-            // Logic B: Use Hydra (Pollinations/HF) - Default or Fallback
+            // Fallback / Default Hydra
             if (!imgUrl) {
                 const targetModel = imageModelPreference.includes('gemini') ? 'hydra-smart-route' : imageModelPreference;
                 const result = await PollinationsService.generateHydraImage(prompt, targetModel);
                 imgUrl = result.url;
-                providerInfo = result.provider;
-                modelInfo = result.model.toUpperCase();
+                engineName = result.model.toUpperCase();
             }
 
-            // FINAL OUTPUT FORMATTING
             if (imgUrl) {
-                // Return a clean Markdown Image with Metadata Footer
-                return `\n![Generated Visual](${imgUrl})\n\n> 🎨 **GENERATED VIA ${providerInfo.toUpperCase()}**\n> 🧠 **MODEL:** ${modelInfo}\n> 📝 **PROMPT:** "${prompt.slice(0, 50)}..."`;
+                return `\n![Generated Visual](${imgUrl})\n\n> 🎨 **RENDER COMPLETE**\n> **Engine:** ${engineName}\n> **Prompt:** "${prompt.slice(0, 40)}..."`;
             } else {
-                throw new Error("All generation engines failed.");
+                throw new Error("All rendering engines busy.");
             }
 
         } catch (e: any) {
-            return `⚠️ **VISUAL SYNTHESIS FAILED**: ${e.message}. System suggests retrying with 'Turbo' model.`;
+            return `> ⚠️ **RENDER FAIL**: ${e.message}. Coba prompt yang lebih sederhana.`;
         }
     }
 
-    // --- 4. SYSTEM MECHANIC ---
+    // --- 4. MECHANIC ---
     if (name === 'system_mechanic_tool') {
-        return await executeMechanicTool(fc);
+        const res = await executeMechanicTool(fc);
+        if (res.startsWith('{')) return res; 
+        return `> 🔧 **SYSTEM OPS**: ${res}`;
     }
 
-    return "UNKNOWN_PROTOCOL.";
+    return "> ❓ **UNKNOWN COMMAND**: Protocol mismatch.";
 };

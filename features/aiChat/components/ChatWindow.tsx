@@ -5,25 +5,15 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { 
     Flame, Brain, ExternalLink, ArrowRight, Copy, Check, ChevronDown,
     Image as ImageIcon, RefreshCw, Search,
-    Network, BrainCircuit, Infinity, AlertTriangle, CheckCheck, Clock
+    Network, BrainCircuit, Infinity, AlertTriangle, CheckCheck, Clock,
+    ClipboardCopy
 } from 'lucide-react';
 import type { ChatMessage } from '../../../types';
 import { generateImage } from '../../../services/geminiService';
 import { AIProviderInfo } from './AIProviderInfo';
 
-// --- TYPES ---
-interface ChatWindowProps {
-  messages: ChatMessage[];
-  personaMode: 'hanisah' | 'stoic';
-  isLoading: boolean;
-  messagesEndRef?: React.RefObject<HTMLDivElement>;
-  onUpdateMessage?: (messageId: string, newText: string) => void;
-}
-
-// ... (Sub-components: SystemStatusBubble, ThinkingAccordion, GroundingSources, ImageGenerationCard, MarkdownImage, CodeBlock, TypingIndicator, MessageBubble - KEPT AS IS, but removed here for brevity to focus on the main Virtuoso structure. In real implementation, these must be included.)
-
-// --- RE-INSERT SUB-COMPONENTS TO ENSURE FULL FILE IS VALID ---
-// (Copying existing sub-components to ensure no code loss, as the user wants full file content)
+// --- TYPES & SUB-COMPONENTS (Keep existing helpers like ThinkingAccordion, etc.) ---
+// ... (imports are same as existing, just ensuring ChatWindow has the Copy logic)
 
 const SystemStatusBubble = ({ status }: { status: string }) => (
     <div className="flex items-center gap-2.5 my-2 px-4 py-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 text-amber-500 w-fit animate-slide-up">
@@ -171,7 +161,9 @@ const TypingIndicator = ({ personaMode }: { personaMode: 'hanisah' | 'stoic' }) 
     );
 };
 
+// --- MESSAGE BUBBLE WITH COPY & ACTION CARDS ---
 const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { msg: ChatMessage, personaMode: 'hanisah' | 'stoic', isLoading: boolean, onUpdateMessage?: (id: string, text: string) => void }) => {
+    const [copied, setCopied] = useState(false);
     
     const isModel = msg.role === 'model' || (msg.role as string) === 'assistant'; 
     const isUser = !isModel;
@@ -221,6 +213,16 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
         return '';
     }, [msg.metadata?.createdAt]);
 
+    // SMART COPY FUNCTION
+    const handleCopyMessage = () => {
+        if (content) {
+            // Clean Markdown markers if needed, or copy raw
+            navigator.clipboard.writeText(content);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
     if (isModel && !content && !isLoading && !thought && !isError && !isRerouting && !imgPrompt) {
         return null;
     }
@@ -237,9 +239,9 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
                 </div>
             )}
 
-            <div className={`relative max-w-[88%] sm:max-w-[80%] lg:max-w-[75%] flex flex-col ${isModel ? 'items-start' : 'items-end'}`}>
+            <div className={`relative max-w-[88%] sm:max-w-[80%] lg:max-w-[75%] flex flex-col ${isModel ? 'items-start' : 'items-end'} min-w-0`}>
                 
-                <div className={`relative px-5 py-4 overflow-hidden text-sm md:text-[15px] leading-7 font-sans tracking-wide shadow-sm 
+                <div className={`relative px-5 py-4 overflow-hidden text-sm md:text-[15px] leading-7 font-sans tracking-wide shadow-sm break-words
                     ${isModel 
                         ? 'bg-white dark:bg-[#0a0a0b] text-black dark:text-neutral-200 rounded-[24px] rounded-tl-sm border border-black/5 dark:border-white/10' 
                         : 'bg-zinc-100 dark:bg-white/5 text-black dark:text-white rounded-[24px] rounded-tr-sm border border-black/5 dark:border-white/5'
@@ -249,7 +251,10 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
                     {thought && <ThinkingAccordion content={thought} isActive={isLoading && !content} />}
                     
                     {content && (
-                        <div className={`prose dark:prose-invert prose-sm max-w-none break-words min-w-0 ${isModel ? 'prose-p:text-neutral-800 dark:prose-p:text-neutral-300' : ''}`}>
+                        <div className={`prose dark:prose-invert prose-sm max-w-none break-words min-w-0 ${isModel ? 'prose-p:text-neutral-800 dark:prose-p:text-neutral-300' : ''} 
+                            /* Custom Blockquote Styling for "Action Cards" */
+                            prose-blockquote:border-l-4 prose-blockquote:border-accent prose-blockquote:bg-accent/5 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:not-italic prose-blockquote:my-2
+                        `}>
                             <Markdown 
                                 urlTransform={(url) => url} 
                                 components={{
@@ -264,6 +269,7 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
                                     table: ({children}) => <div className="overflow-x-auto my-4 border border-white/10 rounded-xl"><table className="min-w-full divide-y divide-white/10 text-[12px]">{children}</table></div>,
                                     th: ({children}) => <th className="px-4 py-2 bg-white/5 font-black uppercase tracking-wider text-left">{children}</th>,
                                     td: ({children}) => <td className="px-4 py-2 border-t border-white/5">{children}</td>,
+                                    blockquote: ({children}) => <blockquote className="border-l-4 border-l-[var(--accent-color)] bg-[var(--accent-color)]/5 pl-4 py-3 my-2 rounded-r-xl border border-transparent border-l-4 shadow-sm">{children}</blockquote>
                                 }}
                             >
                                 {content}
@@ -296,12 +302,23 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
                             )}
                         </div>
                         
-                        <div className="flex items-center gap-1.5 shrink-0 opacity-40 select-none">
-                            <span className="text-[9px] font-mono">{timestamp}</span>
+                        <div className="flex items-center gap-2 shrink-0 opacity-100 select-none">
+                             {/* COPY BUTTON: Shows on hover or always on mobile */}
+                             {isModel && (
+                                 <button 
+                                     onClick={handleCopyMessage}
+                                     className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400 hover:text-accent transition-all md:opacity-0 md:group-hover/msg:opacity-100 focus:opacity-100 opacity-100"
+                                     title="Copy Text"
+                                 >
+                                     {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                                 </button>
+                             )}
+
+                            <span className="text-[9px] font-mono text-neutral-400">{timestamp}</span>
                             {isUser && (
                                 <>
-                                    {(msg.metadata?.status === 'success' || !msg.metadata?.status) && <CheckCheck size={12} />}
-                                    {msg.metadata?.status === 'loading' && <Clock size={12} className="animate-pulse" />}
+                                    {(msg.metadata?.status === 'success' || !msg.metadata?.status) && <CheckCheck size={12} className="text-neutral-400" />}
+                                    {msg.metadata?.status === 'loading' && <Clock size={12} className="animate-pulse text-neutral-400" />}
                                     {msg.metadata?.status === 'error' && <AlertTriangle size={12} className="text-red-500" />}
                                 </>
                             )}
@@ -326,11 +343,16 @@ const MessageBubble = memo(({ msg, personaMode, isLoading, onUpdateMessage }: { 
         && prevMeta === nextMeta;
 });
 
-// --- MAIN WINDOW ---
+// --- MAIN WINDOW (Virtuoso Config) ---
+const itemKey = (index: number, item: any) => item.id || index;
 
-const itemKey = (index: number, item: any) => {
-    return item.id || index;
-};
+interface ChatWindowProps {
+    messages: ChatMessage[];
+    personaMode: 'hanisah' | 'stoic';
+    isLoading: boolean;
+    messagesEndRef: React.RefObject<HTMLDivElement>;
+    onUpdateMessage?: (id: string, text: string) => void;
+}
 
 export const ChatWindow: React.FC<ChatWindowProps> = memo(({ messages, personaMode, isLoading, messagesEndRef, onUpdateMessage }) => {
     const virtuosoRef = useRef<VirtuosoHandle>(null);
@@ -371,7 +393,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = memo(({ messages, personaMo
                     const isLast = index === messages.length - 1;
                     const loadingState = isLoading && isLast && (msg.role === 'model' || (msg.role as string) === 'assistant');
                     return (
-                        <div className="py-2 px-2 md:px-4" style={{ willChange: 'transform' }}>
+                        <div className="py-2 px-2 md:px-4 w-full" style={{ willChange: 'transform' }}>
                              <MessageBubble key={msg.id || index} msg={msg} personaMode={personaMode} isLoading={loadingState} onUpdateMessage={onUpdateMessage}/>
                         </div>
                     );

@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 // Konfigurasi Edge Runtime (Wajib untuk Vercel agar streaming cepat & murah)
@@ -6,18 +7,14 @@ export const config = {
 };
 
 // --- HELPER: ROTASI KEY (LOAD BALANCER) ---
-// Memilih kunci API secara acak dari daftar koma-separated di .env untuk menghindari rate limit
 function getActiveKey(envVar: string | undefined): string | undefined {
   if (!envVar) return undefined;
-  // Hapus spasi, split berdasarkan koma, filter yang kosong
   const keys = envVar.split(',').map(k => k.trim()).filter(k => k.length > 0);
   if (keys.length === 0) return undefined;
-  // Ambil kunci acak
   return keys[Math.floor(Math.random() * keys.length)];
 }
 
 // --- CONFIGURATION & KEYS ---
-// Mengambil kunci segar setiap request
 const getKeys = () => ({
   GEMINI: getActiveKey(process.env.GEMINI_API_KEY),
   OPENAI: getActiveKey(process.env.OPENAI_API_KEY),
@@ -35,57 +32,63 @@ export async function POST(request: Request) {
 
     if (!message) return new Response("Message required", { status: 400 });
 
-    // Fallback logic jika provider/model tidak dikirim
+    // Normalize Provider ID
     const activeProvider = (provider || 'GEMINI').toUpperCase();
-    const activeModel = modelId || getFallbackModel(activeProvider);
+    let activeModel = modelId;
 
     // Gabungkan Context (System Prompt) agar AI ingat instruksi
-    const finalPrompt = context ? `${context}\n\nUser: ${message}` : message;
-
+    // Note: Beberapa provider support 'system' role di messages, tapi penggabungan manual lebih aman untuk konsistensi context.
+    const systemInstruction = context || "You are a helpful assistant.";
+    
     // --- INTELLIGENT ROUTING ---
     switch (activeProvider) {
       case 'GEMINI':
-        return await streamGemini(finalPrompt, activeModel, KEYS.GEMINI);
+      case 'GOOGLE':
+        return await streamGemini(message, systemInstruction, activeModel || 'gemini-1.5-flash', KEYS.GEMINI);
       
       case 'OPENAI':
         return await streamOpenAICompatible(
           'https://api.openai.com/v1/chat/completions',
           KEYS.OPENAI,
-          activeModel,
-          finalPrompt
+          activeModel || 'gpt-4o-mini',
+          message,
+          systemInstruction
         );
 
       case 'GROQ':
         return await streamOpenAICompatible(
           'https://api.groq.com/openai/v1/chat/completions',
           KEYS.GROQ,
-          activeModel,
-          finalPrompt
+          activeModel || 'llama-3.3-70b-versatile',
+          message,
+          systemInstruction
         );
 
       case 'DEEPSEEK':
         return await streamOpenAICompatible(
           'https://api.deepseek.com/chat/completions',
           KEYS.DEEPSEEK,
-          activeModel,
-          finalPrompt
+          activeModel || 'deepseek-chat',
+          message,
+          systemInstruction
         );
       
       case 'MISTRAL':
         return await streamOpenAICompatible(
           'https://api.mistral.ai/v1/chat/completions',
           KEYS.MISTRAL,
-          activeModel,
-          finalPrompt
+          activeModel || 'mistral-large-latest',
+          message,
+          systemInstruction
         );
 
       case 'OPENROUTER':
         return await streamOpenAICompatible(
           'https://openrouter.ai/api/v1/chat/completions',
           KEYS.OPENROUTER,
-          activeModel,
-          finalPrompt,
-          // OpenRouter butuh header tambahan
+          activeModel || 'google/gemini-flash-1.5',
+          message,
+          systemInstruction,
           { 
             "HTTP-Referer": "https://istoic.app", 
             "X-Title": "IStoic AI" 
@@ -93,7 +96,8 @@ export async function POST(request: Request) {
         );
 
       default:
-        return new Response(`Provider ${activeProvider} not supported`, { status: 400 });
+        // Default Fallback to Gemini if unknown provider
+        return await streamGemini(message, systemInstruction, 'gemini-1.5-flash', KEYS.GEMINI);
     }
 
   } catch (error: any) {
@@ -105,16 +109,19 @@ export async function POST(request: Request) {
   }
 }
 
-// --- HELPER 1: GEMINI STREAMING (Latest SDK @google/genai) ---
-async function streamGemini(prompt: string, modelId: string, apiKey: string | undefined) {
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing. Check server env.");
+// --- HELPER 1: GEMINI STREAMING ---
+async function streamGemini(userMsg: string, systemMsg: string, modelId: string, apiKey: string | undefined) {
+  if (!apiKey) throw new Error("GEMINI_API_KEY is missing in server environment.");
   
   const ai = new GoogleGenAI({ apiKey: apiKey });
   
   try {
     const result = await ai.models.generateContentStream({
         model: modelId,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }] 
+        contents: [{ role: 'user', parts: [{ text: userMsg }] }],
+        config: {
+            systemInstruction: systemMsg
+        }
     });
 
     const stream = new ReadableStream({
@@ -142,15 +149,16 @@ async function streamGemini(prompt: string, modelId: string, apiKey: string | un
   }
 }
 
-// --- HELPER 2: OPENAI-COMPATIBLE STREAMING ---
+// --- HELPER 2: OPENAI-COMPATIBLE STREAMING (Unified for Groq, DeepSeek, OpenAI) ---
 async function streamOpenAICompatible(
   endpoint: string, 
   apiKey: string | undefined, 
   model: string, 
-  prompt: string,
+  userMsg: string,
+  systemMsg: string,
   extraHeaders: Record<string, string> = {}
 ) {
-  if (!apiKey) throw new Error(`API Key for ${model} is missing.`);
+  if (!apiKey) throw new Error(`API Key for ${model} is missing in server environment.`);
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -161,7 +169,10 @@ async function streamOpenAICompatible(
     },
     body: JSON.stringify({
       model: model,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+          { role: "system", content: systemMsg },
+          { role: "user", content: userMsg }
+      ],
       stream: true,
       temperature: 0.7,
       max_tokens: 4000
@@ -196,8 +207,19 @@ async function streamOpenAICompatible(
               if (trimmed.startsWith('data: ')) {
                 try {
                   const json = JSON.parse(trimmed.replace('data: ', ''));
+                  // Standard OpenAI Content
                   const content = json.choices?.[0]?.delta?.content || "";
-                  if (content) controller.enqueue(encoder.encode(content));
+                  
+                  // DeepSeek Reasoner Content
+                  const reasoning = json.choices?.[0]?.delta?.reasoning_content || "";
+                  
+                  if (reasoning) {
+                      controller.enqueue(encoder.encode(`<think>${reasoning}</think>`));
+                  }
+                  
+                  if (content) {
+                      controller.enqueue(encoder.encode(content));
+                  }
                 } catch (e) { }
               }
             }
@@ -212,16 +234,4 @@ async function streamOpenAICompatible(
   return new Response(stream, { 
       headers: { "Content-Type": "text/plain; charset=utf-8" } 
   });
-}
-
-// --- UTILS: FALLBACK MODELS ---
-function getFallbackModel(provider: string): string {
-  switch (provider) {
-    case 'GEMINI': return 'gemini-1.5-flash'; 
-    case 'OPENAI': return 'gpt-4o-mini';
-    case 'GROQ': return 'llama-3.3-70b-versatile';
-    case 'DEEPSEEK': return 'deepseek-chat';
-    case 'MISTRAL': return 'mistral-medium';
-    default: return 'gpt-3.5-turbo';
-  }
 }
