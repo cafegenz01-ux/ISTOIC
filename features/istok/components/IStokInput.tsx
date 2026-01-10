@@ -15,6 +15,17 @@ interface IStokInputProps {
     onTyping?: () => void; // New optional prop
 }
 
+const LANGUAGES = [
+    'English', 
+    'Indonesian', 
+    'Javanese',
+    'Japanese', 
+    'Korean', 
+    'Mandarin', 
+    'Spanish',
+    'French'
+];
+
 export const IStokInput = memo(({ 
     onSend, 
     onSendFile,
@@ -64,10 +75,17 @@ export const IStokInput = memo(({
     };
 
     const toggleTranslate = () => {
-        // Toggle logic: OFF -> EN -> ID -> OFF
-        if (!translateLang) setTranslateLang('English');
-        else if (translateLang === 'English') setTranslateLang('Indonesian');
-        else setTranslateLang(null);
+        if (!translateLang) {
+            setTranslateLang(LANGUAGES[0]);
+        } else {
+            const idx = LANGUAGES.indexOf(translateLang);
+            const nextIdx = idx + 1;
+            if (nextIdx < LANGUAGES.length) {
+                setTranslateLang(LANGUAGES[nextIdx]);
+            } else {
+                setTranslateLang(null); // Cycle back to OFF
+            }
+        }
     };
 
     const startRecording = async () => {
@@ -167,7 +185,7 @@ export const IStokInput = memo(({
                     <button 
                         onClick={toggleTranslate}
                         className={`p-2 rounded-full transition-colors ${translateLang ? 'text-cyan-400 bg-cyan-500/10' : 'text-neutral-500 hover:text-cyan-400'}`}
-                        title="Toggle Translation"
+                        title="Cycle Languages"
                     >
                         <Languages size={16} />
                     </button>

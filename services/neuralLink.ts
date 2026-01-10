@@ -134,29 +134,34 @@ export class NeuralLinkService {
     }
 
     async connect(config: NeuralLinkConfig) {
-        if (this.isConnecting || this.isConnected) {
-            console.warn("Neural Link already active or connecting.");
+        // Prevent overlapping connections
+        if (this.isConnecting) {
+            console.warn("Neural Link is already connecting.");
+            return;
+        }
+        if (this.isConnected) {
+            console.warn("Neural Link already active. Disconnect first.");
             return;
         }
         
         this.isConnecting = true;
         this.config = config;
         
-        // Reset state
+        // Reset state & notify UI
         this.disconnect(true); 
         config.onStatusChange('CONNECTING');
 
         try {
             await this.initializeSession(config);
         } catch (e: any) {
-            console.error("Setup Failed:", e);
+            console.error("Neural Link Setup Failed:", e);
             config.onStatusChange('ERROR', e.name === 'NotAllowedError' ? "Mic Access Denied" : e.message);
             this.disconnect();
         }
     }
 
     private async initializeSession(config: NeuralLinkConfig) {
-        // 1. Initialize Audio Contexts if not present
+        // 1. Initialize Audio Contexts (Safe for Autoplay Policies)
         const AudioContextClass = (window as any).AudioContext || (window as any).webkitAudioContext;
         
         if (!this.inputCtx || this.inputCtx.state === 'closed') {
@@ -165,80 +170,98 @@ export class NeuralLinkService {
         
         if (!this.outputCtx || this.outputCtx.state === 'closed') {
             this.outputCtx = new AudioContextClass({ sampleRate: 24000 });
-             // Analyser for visualizer
+            // Analyser for visualizer
             this._analyser = this.outputCtx.createAnalyser();
             this._analyser.fftSize = 512;
             this._analyser.smoothingTimeConstant = 0.7;
             this.ambientMixer = new AmbientMixer(this.outputCtx);
         }
 
-        // CRITICAL: Resume contexts immediately
-        if (this.inputCtx.state === 'suspended') await this.inputCtx.resume();
-        if (this.outputCtx.state === 'suspended') await this.outputCtx.resume();
+        // CRITICAL: Resume contexts immediately. Browser requires this after user interaction.
+        try {
+            if (this.inputCtx.state === 'suspended') await this.inputCtx.resume();
+            if (this.outputCtx.state === 'suspended') await this.outputCtx.resume();
+        } catch (audioErr) {
+            console.warn("AudioContext resume warning:", audioErr);
+        }
 
-        // 2. Initialize Mic
+        // 2. Initialize Mic (User Permission Request)
         if (!this.activeStream) {
             await this.setupMicrophone(this.currentMicMode);
         }
 
-        // 3. Get API Key
+        // 3. Get API Key & Client
         const apiKey = KEY_MANAGER.getKey('GEMINI');
         if (!apiKey) throw new Error("No healthy GEMINI API key available.");
 
         const ai = new GoogleGenAI({ apiKey });
         
-        // 4. Voice Selection
-        if (!GOOGLE_VALID_VOICES.includes(config.voiceName)) {
-            config.voiceName = config.persona === 'hanisah' ? 'Kore' : 'Fenrir';
+        // 4. Voice Selection Validation
+        let selectedVoice = config.voiceName;
+        if (!GOOGLE_VALID_VOICES.includes(selectedVoice)) {
+            selectedVoice = config.persona === 'hanisah' ? 'Kore' : 'Fenrir';
         }
 
-        // 5. Prepare Tools (Including Search & Notes)
-        const liveTools = [
-            { googleSearch: {} }, // Enable Deep Search
-            { 
-                functionDeclarations: [
-                    ...(noteTools.functionDeclarations || []),
-                    ...(visualTools?.functionDeclarations || [])
-                ] 
-            }
+        // 5. Prepare Tools
+        // Note: Gemini Live API can be strict about tool definitions.
+        // We structure them carefully. googleSearch is powerful but can be unstable on some tiers.
+        const liveTools: any[] = [
+            { googleSearch: {} } // Attempt to enable Deep Search
         ];
 
-        // 6. Connect to Gemini Live (Using Latest Model)
+        // Add function tools only if defined
+        const functions = [
+            ...(noteTools.functionDeclarations || []),
+            ...(visualTools?.functionDeclarations || [])
+        ];
+        
+        if (functions.length > 0) {
+            liveTools.push({ functionDeclarations: functions });
+        }
+
+        // 6. Connect to Gemini Live
+        debugService.log('INFO', 'NEURAL_LINK', 'CONNECTING', `Dialing Gemini Live... Model: ${config.modelId}`);
+
         const sessionPromise = ai.live.connect({
-            model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+            model: config.modelId, // e.g., 'gemini-2.5-flash-native-audio-preview-12-2025'
             callbacks: {
                 onopen: () => {
+                    console.log("[NeuralLink] Socket Opened");
                     this.isConnecting = false;
                     this.isConnected = true;
                     config.onStatusChange('ACTIVE');
                     
+                    // Start streaming mic data
                     this.startAudioInputStream(sessionPromise);
                     
-                    // Keep audio context alive
+                    // Watchdog to keep audio context alive (iOS Safari fix)
                     this.audioCheckInterval = setInterval(() => {
                         if (this.outputCtx?.state === 'suspended') this.outputCtx.resume();
                         if (this.inputCtx?.state === 'suspended') this.inputCtx.resume();
                     }, 2000);
 
-                    // Send prime text to establish context
+                    // Send Prime Message (Context Initialization)
+                    // We wrap this in the promise to ensure session is ready
                     sessionPromise.then(session => {
-                        try {
-                            const greeting = config.persona === 'hanisah' 
+                        const greeting = config.persona === 'hanisah' 
                             ? "System online. Hai, aku siap. Lakukan deep search atau manajemen catatan jika diminta."
                             : "Logic core active. Ready for complex analysis and data retrieval.";
-                            session.sendRealtimeInput({ text: greeting });
-                        } catch(err) { console.error(err); }
-                    });
+                        session.sendRealtimeInput({ text: greeting });
+                    }).catch(err => console.error("Prime Msg Error:", err));
                 },
                 onmessage: async (msg: LiveServerMessage) => {
                     await this.handleServerMessage(msg, sessionPromise);
                 },
                 onerror: (e) => {
-                    console.error("Neural Link Error:", e);
-                    if (this.isConnected) config.onStatusChange('ERROR', "Neural Connection Unstable");
+                    console.error("Neural Link Socket Error:", e);
+                    // Only trigger error state if we were connected or connecting
+                    if (this.isConnected || this.isConnecting) {
+                         config.onStatusChange('ERROR', "Neural Connection Dropped");
+                         this.disconnect();
+                    }
                 },
-                onclose: () => {
-                    console.log("Neural Link Closed");
+                onclose: (e) => {
+                    console.log("Neural Link Socket Closed", e);
                     this.disconnect();
                 },
             },
@@ -246,11 +269,12 @@ export class NeuralLinkService {
                 responseModalities: [Modality.AUDIO],
                 tools: liveTools,
                 speechConfig: { 
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: config.voiceName } } 
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: selectedVoice } } 
                 },
                 systemInstruction: config.systemInstruction,
-                inputAudioTranscription: {}, 
-                outputAudioTranscription: {},
+                // Enabling transcription allows us to show text history
+                inputAudioTranscription: { model: "google-1.0" }, 
+                outputAudioTranscription: { model: "google-1.0" },
             }
         });
 
@@ -262,8 +286,7 @@ export class NeuralLinkService {
         
         debugService.log('INFO', 'NEURAL_LINK', 'VOICE_SWAP', `Switching to ${newVoice}...`);
         
-        // Gemini Live doesn't support hot-swapping config mid-session yet.
-        // We must perform a fast-reconnect.
+        // Close current session to force reconfiguration
         try {
             if (this.session && typeof this.session.close === 'function') {
                 this.session.close();
@@ -272,6 +295,7 @@ export class NeuralLinkService {
 
         this.config.voiceName = newVoice;
         
+        // Re-initialize with new config
         try {
             await this.initializeSession(this.config);
         } catch (e) {
@@ -338,9 +362,11 @@ export class NeuralLinkService {
             this.scriptProcessor = this.inputCtx.createScriptProcessor(4096, 1, 1);
             
             this.scriptProcessor.onaudioprocess = (e) => {
+                if (!this.isConnected) return; // Stop processing if disconnected
+
                 const inputData = e.inputBuffer.getChannelData(0);
                 
-                // VAD Gate (Prevent silence spam)
+                // VAD Gate (Prevent silence spam which wastes tokens)
                 let sum = 0;
                 for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
                 const rms = Math.sqrt(sum / inputData.length);
@@ -369,8 +395,6 @@ export class NeuralLinkService {
     }
 
     private async handleServerMessage(msg: LiveServerMessage, sessionPromise: Promise<any>) {
-        if (!this.isConnected) return;
-
         // 1. Transcription Handling
         if (this.config?.onTranscription) {
             if (msg.serverContent?.inputTranscription) {
@@ -396,10 +420,12 @@ export class NeuralLinkService {
                     try {
                         const result = await this.config.onToolCall(fc);
                         // CRITICAL: Send Response back to Model to Unfreeze it
+                        // The Model waits for this response before continuing audio generation
                         sessionPromise.then(s => s.sendToolResponse({ 
                             functionResponses: [{ id: fc.id, name: fc.name, response: { result: String(result) } }] 
-                        }));
+                        })).catch(e => console.error("Tool Response Error", e));
                     } catch (err) {
+                        console.error("Tool Execution Failed:", err);
                         sessionPromise.then(s => s.sendToolResponse({
                             functionResponses: [{ id: fc.id, name: fc.name, response: { result: "Error executing tool" } }]
                         }));
@@ -417,7 +443,7 @@ export class NeuralLinkService {
 
                 const currentTime = this.outputCtx.currentTime;
                 if (this.nextStartTime < currentTime) {
-                    this.nextStartTime = currentTime + 0.08; // Slight buffer
+                    this.nextStartTime = currentTime + 0.05; // Tight buffer
                 }
 
                 const audioBuffer = await decodeAudioData(decodeAudio(base64Audio), this.outputCtx, 24000, 1);
@@ -436,9 +462,12 @@ export class NeuralLinkService {
                 this.sources.add(source);
                 
                 source.onended = () => this.sources.delete(source);
-            } catch (e) { }
+            } catch (e) { 
+                console.error("Audio Decode/Play Error", e);
+            }
         }
 
+        // Handle Interruption
         if (msg.serverContent?.interrupted) {
             this.sources.forEach(s => { try { s.stop(); } catch(e){} });
             this.sources.clear();
@@ -474,9 +503,10 @@ export class NeuralLinkService {
             this.ambientMixer.stop();
         }
 
-        // Close contexts to free hardware
-        if (this.inputCtx) { try { this.inputCtx.close(); } catch(e){} this.inputCtx = null; }
-        if (this.outputCtx) { try { this.outputCtx.close(); } catch(e){} this.outputCtx = null; }
+        // We do NOT close contexts entirely, we suspend them to reuse hardware connection
+        // Closing them often requires re-requesting permissions or heavy re-init on mobile
+        if (this.inputCtx && this.inputCtx.state === 'running') { try { this.inputCtx.suspend(); } catch(e){} }
+        if (this.outputCtx && this.outputCtx.state === 'running') { try { this.outputCtx.suspend(); } catch(e){} }
 
         this.sources.forEach(s => { try { s.stop(); } catch(e){} });
         this.sources.clear();

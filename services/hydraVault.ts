@@ -2,7 +2,7 @@
 import { debugService } from './debugService';
 import { SECURITY_MATRIX } from './securityMatrix';
 
-export type Provider = 'GEMINI' | 'GROQ' | 'OPENAI' | 'DEEPSEEK' | 'MISTRAL' | 'OPENROUTER' | 'ELEVENLABS' | 'HUGGINGFACE' | 'DEEPL';
+export type Provider = 'GEMINI' | 'GROQ' | 'OPENAI' | 'DEEPSEEK' | 'MISTRAL' | 'OPENROUTER' | 'ELEVENLABS' | 'HUGGINGFACE';
 type KeyStatus = 'ACTIVE' | 'COOLDOWN';
 
 interface KeyRecord {
@@ -31,7 +31,7 @@ export class HydraVault {
 
   public refreshPools() {
     const viteEnv = (import.meta as any).env || {};
-    const providers: Provider[] = ['GEMINI', 'GROQ', 'OPENAI', 'DEEPSEEK', 'MISTRAL', 'OPENROUTER', 'ELEVENLABS', 'HUGGINGFACE', 'DEEPL'];
+    const providers: Provider[] = ['GEMINI', 'GROQ', 'OPENAI', 'DEEPSEEK', 'MISTRAL', 'OPENROUTER', 'ELEVENLABS', 'HUGGINGFACE'];
 
     // Check Global Secure Mode Flag (Injected by Vite)
     const isSecureMode = (typeof __SECURE_MODE__ !== 'undefined' && __SECURE_MODE__) || 

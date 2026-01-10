@@ -23,7 +23,6 @@ import { compressImage } from './components/gambar';
 import { IStokUserIdentity } from './services/istokIdentity';
 import { IStokInput } from './components/IStokInput'; 
 import { OMNI_KERNEL } from '../../services/omniRace'; 
-import { TranslationService } from '../../services/translationService'; // Added
 
 // --- CONSTANTS ---
 const CHUNK_SIZE = 1024 * 64; // 64KB
@@ -614,22 +613,28 @@ export const IStokView: React.FC<IStokViewProps> = ({ onLogout, globalPeer, init
         } catch (e) { return userDraft; } finally { setIsAiThinking(false); }
     };
 
-    // Modified Translation Handler to Prioritize DeepL
     const handleTranslation = async (text: string, targetLang: string): Promise<string> => {
         setIsAiThinking(true);
         try {
-            // Priority 1: DeepL (High Accuracy)
-            if (TranslationService.isDeepLAvailable()) {
-                try {
-                    return await TranslationService.translate(text, targetLang);
-                } catch (deeplErr) {
-                    console.warn("DeepL failed, falling back to OmniRace", deeplErr);
-                }
-            }
+            // PROFESSIONAL LINGUIST PROMPT
+            const systemPrompt = `[ROLE: PROFESSIONAL_LINGUIST_CHAT_TRANSLATOR]
+Anda adalah ahli bahasa dan penerjemah pesan chat profesional.
+Tugas Anda: Menerjemahkan pesan dengan sangat natural, modern, dan sesuai konteks (slang jika perlu).
 
-            // Priority 2: OmniRace (LLM Fallback)
-            const prompt = `Translate to ${targetLang}: "${text}". OUTPUT ONLY TRANSLATION.`;
-            const stream = OMNI_KERNEL.raceStream(prompt);
+ATURAN UTAMA:
+1. JANGAN kaku. Gunakan bahasa gaul/slang jika pesan aslinya santai.
+2. JANGAN gunakan bahasa kamus/formal jika konteksnya adalah chat antar teman.
+3. PAHAMI IDIOM: Cari padanan yang tepat di bahasa target.
+4. INDONESIA: Gunakan 'aku/kamu', 'kok', 'sih', 'nih' agar luwes.
+5. ENGLISH: Gunakan phrasal verbs dan ekspresi native.
+6. PERTAHANKAN EMOJI: Jangan hapus atau ubah posisi emoji.
+7. JANGAN MENJAWAB SEBAGAI AI. Jadilah "tangan" user yang mengetik.
+8. OUTPUT ONLY THE TRANSLATED TEXT. NO EXPLANATION.
+
+Target Language: ${targetLang}
+INPUT TEXT: "${text}"`;
+
+            const stream = OMNI_KERNEL.raceStream(text, systemPrompt);
             let result = "";
             for await (const chunk of stream) if (chunk.text) result += chunk.text;
             return result.trim();
