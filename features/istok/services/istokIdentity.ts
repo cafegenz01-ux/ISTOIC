@@ -1,20 +1,34 @@
 // src/features/istok/services/istokIdentity.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { auth, db, googleProvider } from "../../../services/firebaseConfig";
 import {
-  signInWithRedirect,
+  auth,
+  db,
+  googleProvider,
+  firebaseSignInWithPopup,
+  firebaseSignInWithRedirect,
+  ensureAuthPersistence,
+  signOut as firebaseSignOut,
+} from '../../../services/firebaseConfig';
+
+import { Capacitor } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
+
+import {
   getRedirectResult,
-  signOut as fbSignOut,
-  User as FirebaseUser,
-} from "firebase/auth";
+  onAuthStateChanged,
+  User,
+} from 'firebase/auth';
+
 import {
   doc,
   getDoc,
   setDoc,
   updateDoc,
   serverTimestamp,
-} from "firebase/firestore";
-import { debugService } from "../../../services/debugService";
+} from 'firebase/firestore';
+
+import { debugService } from '../../../services/debugService';
 
 export interface IStokUserIdentity {
   uid: string;
@@ -23,193 +37,192 @@ export interface IStokUserIdentity {
   email: string;
   displayName: string;
   photoURL: string;
-  lastIdChange?: any; // Firestore Timestamp
+  lastIdChange?: any;
   idChangeCount?: number;
 }
 
-type LoginOutcome =
-  | { status: "SIGNED_IN"; identity: IStokUserIdentity }
-  | { status: "REDIRECT_STARTED" }
-  | { status: "CANCELLED"; message: string }
-  | { status: "ERROR"; message: string };
-
-const LOCAL_KEY = "istok_user_identity";
-
-/**
- * Small helpers
- */
-function safeString(v: any): string {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
+function isNative(): boolean {
+  return Capacitor.isNativePlatform();
 }
 
-function buildNewIdentity(user: FirebaseUser): IStokUserIdentity {
-  return {
-    uid: user.uid,
-    email: safeString(user.email),
-    displayName: safeString(user.displayName),
-    photoURL: safeString(user.photoURL),
-    istokId: "",
-    codename: "",
-  };
+function friendlyAuthError(error: any): string {
+  const errCode = error?.code || '';
+  const errMsg = error?.message || String(error || '');
+
+  // User cancel
+  if (errCode === 'auth/popup-closed-by-user' || errMsg.includes('closed-by-user')) {
+    return 'Login cancelled by user.';
+  }
+
+  // Popup blocked / COOP
+  if (
+    errCode === 'auth/popup-blocked' ||
+    errMsg.includes('Cross-Origin-Opener-Policy') ||
+    errMsg.includes('window.closed')
+  ) {
+    return 'Popup blocked by browser policy. Please allow popups or try another browser.';
+  }
+
+  // Unauthorized domain
+  if (
+    errCode === 'auth/unauthorized-domain' ||
+    errMsg.includes('unauthorized-domain')
+  ) {
+    const currentDomain = window.location.hostname;
+    return `Domain "${currentDomain}" unauthorized. Add it in Firebase Console → Auth → Settings → Authorized domains.`;
+  }
+
+  // Network fail
+  if (errCode === 'auth/network-request-failed') {
+    return 'Network connection failed. Please check your internet.';
+  }
+
+  // Generic
+  return errMsg || 'Login failed.';
 }
 
-async function loadProfileFromFirestore(uid: string): Promise<IStokUserIdentity | null> {
+async function fetchProfile(uid: string): Promise<IStokUserIdentity | null> {
   if (!db) return null;
-  const userRef = doc(db, "users", uid);
+  const userRef = doc(db, 'users', uid);
   const snap = await getDoc(userRef);
   if (!snap.exists()) return null;
   return snap.data() as IStokUserIdentity;
 }
 
-function saveLocal(identity: IStokUserIdentity) {
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(identity));
-  } catch {
-    // ignore storage issues
-  }
-}
-
-function readLocal(): IStokUserIdentity | null {
-  try {
-    const raw = localStorage.getItem(LOCAL_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as IStokUserIdentity;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Normalize Firebase auth errors to friendly messages
- */
-function normalizeAuthError(error: any): { code: string; message: string } {
-  const code = safeString(error?.code);
-  const msg = safeString(error?.message || error);
-
-  // User cancels
-  if (code === "auth/user-cancelled" || msg.includes("cancel")) {
-    return { code, message: "Login cancelled by user." };
-  }
-
-  // Network issues
-  if (code === "auth/network-request-failed") {
-    return { code, message: "Network connection failed. Please check your internet." };
-  }
-
-  // Domain issues (mostly web)
-  if (code === "auth/unauthorized-domain" || msg.includes("unauthorized-domain")) {
-    const currentDomain = window.location.hostname;
-    return {
-      code,
-      message: `Domain "${currentDomain}" unauthorized. Add it in Firebase Console > Auth > Settings.`,
-    };
-  }
-
-  // Popup errors should not appear anymore, but keep safe fallback
-  if (code.includes("popup") || msg.includes("popup")) {
-    return {
-      code,
-      message: "Popup-based login is not supported on mobile. Please use redirect login.",
-    };
-  }
-
-  return { code, message: msg || "Login failed." };
+function normalizeUser(user: User): Pick<IStokUserIdentity, 'uid'|'email'|'displayName'|'photoURL'> {
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
+    photoURL: user.photoURL || '',
+  };
 }
 
 export const IstokIdentityService = {
   /**
-   * Google login entrypoint for BOTH web & Capacitor.
+   * ✅ Login Google (AUTO):
+   * - Web: Popup
+   * - Native: Redirect (lebih stabil)
    *
-   * Behavior:
-   * - If a redirect result exists (user just came back from browser), returns identity.
-   * - Otherwise starts redirect flow and returns REDIRECT_STARTED.
+   * Return:
+   * - existing profile jika ada
+   * - kalau user baru: object base (tanpa istokId/codename)
    *
-   * UI usage suggestion:
-   * - If status === "REDIRECT_STARTED": do nothing (app will leave to browser).
-   * - If status === "SIGNED_IN": proceed to app.
+   * IMPORTANT:
+   * Untuk Native Redirect, proses complete-nya terjadi saat app balik.
+   * `finalizeRedirectIfAny()` harus dipanggil di startup (index.tsx appUrlOpen sudah kamu pasang).
    */
-  loginWithGoogle: async (): Promise<LoginOutcome> => {
-    if (!auth) {
-      // This matches your app's existing error text
-      return { status: "ERROR", message: "Firebase Configuration Missing in .env" };
-    }
+  loginWithGoogle: async (): Promise<IStokUserIdentity> => {
+    if (!auth) throw new Error('Firebase Configuration Missing in .env');
+    if (!db) throw new Error('Firestore not initialized. Check Firebase config.');
+
+    await ensureAuthPersistence();
 
     try {
-      // 1) If user just returned from redirect flow, this will contain the result
-      const redirectResult = await getRedirectResult(auth);
+      if (isNative()) {
+        // Native: Redirect
+        await firebaseSignInWithRedirect(auth, googleProvider);
 
-      if (redirectResult?.user) {
-        const user = redirectResult.user;
+        // Setelah ini biasanya app akan pindah ke browser,
+        // hasil login diambil saat balik (via getRedirectResult).
+        // Kita throw khusus supaya UI bisa stop loading tanpa error.
+        throw new Error('__REDIRECT_STARTED__');
+      } else {
+        // Web: Popup
+        const result = await firebaseSignInWithPopup(auth, googleProvider);
+        const user = result.user;
 
-        // Try firestore profile
-        const existing = await loadProfileFromFirestore(user.uid);
-        const identity = existing ?? buildNewIdentity(user);
+        const existing = await fetchProfile(user.uid);
+        if (existing) return existing;
 
-        // Save local mirror for fast startup/offline use
-        saveLocal(identity);
-
-        return { status: "SIGNED_IN", identity };
+        // new user (needs setup)
+        const base = normalizeUser(user);
+        return {
+          ...base,
+          istokId: '',
+          codename: '',
+        };
+      }
+    } catch (err: any) {
+      // Ini bukan error; hanya marker bahwa redirect dimulai
+      if (String(err?.message || '') === '__REDIRECT_STARTED__') {
+        // biar caller bisa handle: jangan tampilkan error.
+        throw err;
       }
 
-      // 2) No redirectResult => start redirect login
-      await signInWithRedirect(auth, googleProvider);
-
-      // At this point the app will navigate away to browser.
-      return { status: "REDIRECT_STARTED" };
-    } catch (error: any) {
-      console.error("[ISTOK_AUTH] Detailed Error:", error);
-
-      const { code, message } = normalizeAuthError(error);
-      debugService.log("ERROR", "ISTOK_AUTH", "LOGIN_FAIL", `${code}: ${message}`);
-
-      // Treat some known cases as cancellation
-      if (
-        code === "auth/popup-closed-by-user" ||
-        code === "auth/cancelled-popup-request" ||
-        message.toLowerCase().includes("cancelled")
-      ) {
-        return { status: "CANCELLED", message: "Login cancelled by user." };
-      }
-
-      return { status: "ERROR", message };
+      const msg = friendlyAuthError(err);
+      debugService.log('ERROR', 'ISTOK_AUTH', 'LOGIN_FAIL', msg);
+      throw new Error(msg);
     }
   },
 
   /**
-   * Save initial profile (new user setup)
+   * ✅ Dipanggil saat app balik dari redirect (Native).
+   * Letakkan di handler appUrlOpen atau saat boot app.
+   * Return: identity atau null jika tidak ada redirect result.
    */
+  finalizeRedirectIfAny: async (): Promise<IStokUserIdentity | null> => {
+    if (!auth || !db) return null;
+
+    await ensureAuthPersistence();
+
+    try {
+      const result = await getRedirectResult(auth);
+      if (!result?.user) return null;
+
+      const user = result.user;
+      const existing = await fetchProfile(user.uid);
+      if (existing) return existing;
+
+      const base = normalizeUser(user);
+      return {
+        ...base,
+        istokId: '',
+        codename: '',
+      };
+    } catch (err: any) {
+      // Kalau tidak ada pending redirect, Firebase kadang throw.
+      // Jangan bikin crash.
+      const msg = friendlyAuthError(err);
+      debugService.log('WARN', 'ISTOK_AUTH', 'REDIRECT_FINALIZE_FAIL', msg);
+      return null;
+    }
+  },
+
+  /**
+   * ✅ Silent restore: cocok untuk AuthView kamu yang pakai onAuthStateChanged.
+   * Biar rapi, kita bungkus.
+   */
+  watchAuthState: (cb: (user: User | null) => void) => {
+    if (!auth) return () => {};
+    return onAuthStateChanged(auth, cb);
+  },
+
+  // Save initial profile
   createProfile: async (identity: IStokUserIdentity) => {
     if (!db || !identity?.uid) return;
 
-    try {
-      await setDoc(doc(db, "users", identity.uid), {
-        ...identity,
-        createdAt: serverTimestamp(),
-        lastIdChange: serverTimestamp(),
-        idChangeCount: 0,
-      });
+    await setDoc(doc(db, 'users', identity.uid), {
+      ...identity,
+      createdAt: serverTimestamp(),
+      lastIdChange: serverTimestamp(),
+      idChangeCount: 0,
+    });
 
-      saveLocal(identity);
-    } catch (e) {
-      console.error("Profile Creation Error", e);
-      throw e;
-    }
+    localStorage.setItem('istok_user_identity', JSON.stringify(identity));
   },
 
-  /**
-   * Update ID with restrictions (2x per 30 days)
-   */
+  // Update ID with Restrictions (2x per 30 days)
   updateCodename: async (
     uid: string,
     newCodename: string
   ): Promise<{ success: boolean; msg: string }> => {
-    if (!db) return { success: false, msg: "Database offline" };
-    if (!uid) return { success: false, msg: "Invalid user" };
+    if (!db) return { success: false, msg: 'Database offline' };
 
-    const userRef = doc(db, "users", uid);
+    const userRef = doc(db, 'users', uid);
     const userSnap = await getDoc(userRef);
 
-    if (!userSnap.exists()) return { success: false, msg: "User not found" };
+    if (!userSnap.exists()) return { success: false, msg: 'User not found' };
 
     const data: any = userSnap.data();
     const now = new Date();
@@ -218,7 +231,6 @@ export const IstokIdentityService = {
     const daysSince = (now.getTime() - lastChange.getTime()) / (1000 * 3600 * 24);
     let count = data.idChangeCount || 0;
 
-    // Reset quota if > 30 days
     if (daysSince > 30) count = 0;
 
     if (count >= 2) {
@@ -228,9 +240,7 @@ export const IstokIdentityService = {
       };
     }
 
-    const clean = newCodename.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-    if (!clean) return { success: false, msg: "Invalid ID format" };
-
+    const clean = newCodename.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     const newId = `ISTOIC-${clean}`;
 
     try {
@@ -242,46 +252,28 @@ export const IstokIdentityService = {
       });
 
       const newIdentity = { ...data, codename: clean, istokId: newId };
-      saveLocal(newIdentity);
+      localStorage.setItem('istok_user_identity', JSON.stringify(newIdentity));
 
-      return { success: true, msg: "ID Updated Successfully." };
+      return { success: true, msg: 'ID Updated Successfully.' };
     } catch (e: any) {
-      return { success: false, msg: safeString(e?.message || e) };
+      return { success: false, msg: e?.message || 'Update failed' };
     }
   },
 
-  /**
-   * Logout
-   */
   logout: async () => {
-    if (auth) await fbSignOut(auth);
-    try {
-      localStorage.removeItem(LOCAL_KEY);
-      localStorage.removeItem("bio_auth_enabled");
-      // Do NOT remove sys_vault_hash to prevent lock-out from local data
-    } catch {
-      // ignore
-    }
+    if (auth) await firebaseSignOut(auth);
+    localStorage.removeItem('istok_user_identity');
+    localStorage.removeItem('bio_auth_enabled');
   },
 
-  /**
-   * Helpers
-   */
   formatId: (rawName: string): string => {
-    const clean = safeString(rawName).replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    const clean = rawName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
     return `ISTOIC-${clean}`;
   },
 
   resolveId: (input: string): string => {
-    const cleanInput = safeString(input).trim().toUpperCase();
-    if (cleanInput.startsWith("ISTOIC-")) return cleanInput;
+    const cleanInput = input.trim().toUpperCase();
+    if (cleanInput.startsWith('ISTOIC-')) return cleanInput;
     return `ISTOIC-${cleanInput}`;
-  },
-
-  /**
-   * Optional: fast local read (offline UX)
-   */
-  getLocalIdentity: (): IStokUserIdentity | null => {
-    return readLocal();
   },
 };

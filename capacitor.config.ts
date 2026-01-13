@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'ISTOIC',
   webDir: 'dist',
   bundledWebRuntime: false,
+  // PENTING: JANGAN isi server.url untuk production
   server: {
     androidScheme: 'https'
   }
