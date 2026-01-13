@@ -1,5 +1,5 @@
 export const authStyles = {
- codex/update-authview-styles-to-use-token-variables
+ 
   card: "backdrop-blur-2xl border border-[var(--border-base)] bg-[var(--bg-card)]/90 rounded-[32px] p-8 shadow-[0_20px_50px_rgba(var(--shadow-color),0.18)] relative overflow-hidden",
   title: "text-xl font-black text-[var(--text-main)] uppercase tracking-tight",
   subtitle: "text-[10px] text-[var(--text-muted)] font-mono mt-1 uppercase tracking-[0.2em]",
@@ -22,7 +22,7 @@ export const authStyles = {
     "p-3 bg-[var(--bg-surface)] border border-[var(--border-highlight)] rounded-xl text-[var(--text-main)] text-xs font-bold text-center mb-4",
   alertSuccess:
     "p-3 bg-[var(--bg-surface)] border border-[var(--border-highlight)] rounded-xl text-[var(--accent-color)] text-xs font-bold text-center mb-4",
-=======
+
   card: "relative overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-[var(--card)]/92 p-[var(--space-6)] shadow-[var(--shadow)] backdrop-blur-xl",
   title: "text-xl font-semibold text-[var(--text-primary)] uppercase tracking-tight",
   subtitle: "text-[10px] text-[var(--text-muted)] font-mono mt-[var(--space-1)] uppercase tracking-[0.2em]",
@@ -45,5 +45,4 @@ export const authStyles = {
     "p-[var(--space-3)] bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-sm)] text-[var(--text-secondary)] text-xs font-semibold text-center mb-[var(--space-4)]",
   alertSuccess:
     "p-[var(--space-3)] bg-[var(--success-soft)] border border-[var(--success)] rounded-[var(--radius-sm)] text-[var(--success)] text-xs font-semibold text-center mb-[var(--space-4)]",
- main
 };
