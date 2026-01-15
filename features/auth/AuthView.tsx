@@ -100,6 +100,36 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   };
 
   useEffect(() => {
+    const root = document.documentElement;
+    const updateViewport = () => {
+      const viewport = window.visualViewport;
+      const height = viewport?.height ?? window.innerHeight;
+      root.style.setProperty("--auth-vh", `${height}px`);
+
+      if (!viewport) {
+        root.style.setProperty("--keyboard-offset", "0px");
+        return;
+      }
+
+      const offset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      root.style.setProperty("--keyboard-offset", `${offset}px`);
+    };
+
+    updateViewport();
+    window.visualViewport?.addEventListener("resize", updateViewport);
+    window.visualViewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", updateViewport);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", updateViewport);
+      window.visualViewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+      root.style.removeProperty("--auth-vh");
+      root.style.setProperty("--keyboard-offset", "0px");
+    };
+  }, []);
+
+  useEffect(() => {
     const checkLockout = () => {
       const now = Date.now();
       if (lockoutUntil > now) {
@@ -433,10 +463,10 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
   if (stage === "CHECKING") {
     return (
-      <div className="fixed inset-0 bg-[#020202] flex items-center justify-center">
+      <div className="fixed inset-0 bg-[color:var(--bg)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
-          <p className="text-emerald-500 text-[10px] font-black tracking-[0.3em] animate-pulse">
+          <div className="w-12 h-12 border-4 border-[color:var(--primary)]/20 border-t-[color:var(--primary)] rounded-full animate-spin"></div>
+          <p className="text-[color:var(--text-muted)] text-xs font-semibold tracking-[0.25em] animate-pulse">
             RESTORING IDENTITY...
           </p>
         </div>
@@ -446,13 +476,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
   if (stage === "BIOMETRIC_SCAN") {
     return (
-      <div className="fixed inset-0 z-[9999] bg-[#000000] flex flex-col items-center justify-center animate-fade-in text-emerald-500">
+      <div className="fixed inset-0 z-[9999] bg-[color:var(--bg)] flex flex-col items-center justify-center animate-fade-in text-[color:var(--primary)]">
         <div className="relative mb-8">
           <ScanFace size={64} strokeWidth={1} className="animate-pulse" />
-          <div className="absolute inset-0 border-4 border-emerald-500/20 rounded-full animate-[spin_3s_linear_infinite] w-full h-full scale-150 border-t-emerald-500"></div>
+          <div className="absolute inset-0 border-4 border-[color:var(--primary)]/20 rounded-full animate-[spin_3s_linear_infinite] w-full h-full scale-150 border-t-[color:var(--primary)]"></div>
         </div>
-        <h2 className="text-xl font-black tracking-widest uppercase">{bioStatus}</h2>
-        <button onClick={() => setStage("LOCKED")} className="mt-8 text-neutral-500 text-xs font-mono hover:text-white">
+        <h2 className="text-lg font-semibold tracking-[0.2em] uppercase">{bioStatus}</h2>
+        <button onClick={() => setStage("LOCKED")} className="mt-8 text-text-muted text-xs font-medium hover:text-text">
           USE PIN
         </button>
       </div>
@@ -460,19 +490,24 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 overflow-hidden font-sans select-none bg-[radial-gradient(120%_120%_at_20%_20%,rgba(var(--accent-rgb),0.12),transparent_45%),radial-gradient(90%_90%_at_80%_0%,rgba(var(--accent-2-rgb),0.12),transparent_40%),var(--bg)]">
-      <div className="absolute inset-0 bg-[linear-gradient(var(--accent-rgb)/0.03_1px,transparent_1px),linear-gradient(90deg,var(--accent-rgb)/0.03_1px,transparent_1px)] bg-[size:36px_36px] opacity-60 pointer-events-none"></div>
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[70vw] h-[70vh] bg-[var(--accent)]/6 blur-[140px] rounded-full pointer-events-none"></div>
-
-      <div className={`relative w-full max-w-md ${shake ? "animate-[shake_0.5s_cubic-bezier(.36,.07,.19,.97)_both]" : ""}`}>
-        <div className={authStyles.card}>
+    <div className="fixed inset-0 z-[9999] bg-[color:var(--bg)] text-text font-sans select-none">
+      <div className="h-full w-full overflow-y-auto">
+        <div
+          className="min-h-full flex items-center justify-center px-5"
+          style={{
+            minHeight: "var(--auth-vh, 100dvh)",
+            paddingTop: "calc(env(safe-area-inset-top) + 2rem)",
+            paddingBottom: "calc(env(safe-area-inset-bottom) + var(--keyboard-offset, 0px) + 2rem)",
+          }}
+        >
+          <div className={`w-full max-w-md ${shake ? "animate-[shake_0.5s_cubic-bezier(.36,.07,.19,.97)_both]" : ""}`}>
+            <div className={authStyles.card}>
           {stage === "WELCOME" && (
-            <div className="text-center space-y-8 animate-slide-up">
+            <div className="text-center space-y-7 animate-slide-up">
               <div className="space-y-2">
-                <h1 className="text-3xl font-black text-white italic tracking-tighter uppercase">
-                  ISTOIC <span className="text-emerald-500">TITANIUM</span>
-                </h1>
-                <p className="text-[10px] font-mono text-neutral-500 uppercase tracking-[0.3em]">SECURE COGNITIVE OS v101.0</p>
+                <p className="text-xs font-semibold text-text-muted tracking-[0.24em] uppercase">ISTOIC</p>
+                <h1 className="text-3xl font-semibold text-text tracking-tight">Welcome back</h1>
+                <p className="text-sm text-text-muted">Secure access to your productivity workspace.</p>
               </div>
 
               <div className="space-y-4">
@@ -481,14 +516,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                   disabled={loading}
                   className={authStyles.buttonPrimary}
                 >
-                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Chrome size={18} className="text-blue-500" />}
-                  LANJUTKAN DENGAN GOOGLE
+                  {loading ? <Loader2 size={18} className="animate-spin" /> : <Chrome size={18} className="text-[color:var(--primary-contrast)]" />}
+                  Lanjutkan dengan Google
                 </button>
 
-                <div className="flex items-center gap-4 px-2">
-                  <div className="h-[1px] bg-white/10 flex-1"></div>
-                  <span className="text-[9px] text-neutral-600 font-black uppercase">ATAU</span>
-                  <div className="h-[1px] bg-white/10 flex-1"></div>
+                <div className="flex items-center gap-3 px-2 text-xs text-text-muted">
+                  <div className="h-px bg-[color:var(--border)] flex-1"></div>
+                  <span className="font-semibold uppercase tracking-[0.2em]">atau</span>
+                  <div className="h-px bg-[color:var(--border)] flex-1"></div>
                 </div>
 
                 <button
@@ -496,42 +531,38 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                   disabled={loading}
                   className={authStyles.buttonSecondary}
                 >
-                  <Mail size={18} className="text-emerald-500" />
-                  LOGIN DENGAN EMAIL
+                  <Mail size={18} className="text-[color:var(--primary)]" />
+                  Login dengan Email
                 </button>
 
                 <button
                   onClick={() => setStage("REGISTER_MANUAL")}
                   disabled={loading}
-                  className="w-full py-3 bg-[color:var(--accent-2)]/10 hover:bg-[color:var(--accent-2)]/20 border border-[color:var(--accent-2)]/30 text-[color:var(--accent-2)] rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95"
+                  className={authStyles.buttonGhost}
                 >
-                  BUAT AKUN BARU
+                  Buat akun baru
                 </button>
 
                 <button
                   onClick={() => setStage("FORGOT_ACCOUNT")}
-                  className="text-[9px] font-bold text-neutral-500 hover:text-white transition-colors flex items-center gap-2 mx-auto pt-2"
+                  className="text-xs font-semibold text-text-muted hover:text-text transition-colors flex items-center gap-2 mx-auto"
                 >
-                  <HelpCircle size={10} /> LUPA AKUN?
+                  <HelpCircle size={12} /> Lupa akun?
                 </button>
               </div>
 
-              <div className="space-y-4 pt-2">
-                {isSystemPinConfigured() && (
+              {isSystemPinConfigured() && (
+                <div className="pt-2">
                   <button
                     onClick={() => setStage("LOCKED")}
-                    className="text-[10px] font-bold text-neutral-400 hover:text-[color:var(--accent)] transition-colors flex items-center justify-center gap-2 mx-auto"
+                    className="text-xs font-semibold text-text-muted hover:text-text transition-colors flex items-center justify-center gap-2 mx-auto"
                   >
-                    <KeyRound size={12} /> AKSES PERANGKAT
+                    <KeyRound size={12} /> Akses perangkat
                   </button>
-                )}
-              </div>
-
-              {error && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-medium mt-4">
-                  {error}
                 </div>
               )}
+
+              {error && <div className={authStyles.alertError}>{error}</div>}
             </div>
           )}
 
@@ -539,26 +570,26 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             <div className="space-y-6 animate-slide-up">
               <div className="text-center">
                 <h2 className={authStyles.title}>Setup Identitas</h2>
-                <p className="text-xs text-neutral-500 mt-2">Buat Callsign unik untuk jaringan IStok.</p>
+                <p className="text-sm text-text-muted mt-2">Buat callsign unik untuk jaringan IStok.</p>
               </div>
 
-              <div className="bg-[color:var(--surface-2)] border border-[color:var(--border)]/70 rounded-2xl px-4 py-4 focus-within:border-[color:var(--accent)] transition-all flex items-center shadow-[var(--shadow-soft)]">
-                <span className="text-[color:var(--accent-2)] font-black text-sm mr-1 select-none">ISTOIC-</span>
+              <div className="bg-[color:var(--surface-2)] border border-[color:var(--border)] rounded-[var(--radius-lg)] px-4 py-4 focus-within:border-[color:var(--primary)] transition-all flex items-center shadow-[var(--shadow-soft)]">
+                <span className="text-[color:var(--primary)] font-semibold text-sm mr-1 select-none">ISTOIC-</span>
                 <input
                   value={codename}
                   onChange={(e) => setCodename(e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())}
-                  className="bg-transparent border-none outline-none text-[color:var(--text)] font-bold text-lg w-full uppercase"
+                  className="bg-transparent border-none outline-none text-[color:var(--text)] font-semibold text-lg w-full uppercase"
                   placeholder="BARISTA"
                   maxLength={12}
                 />
               </div>
 
-              {error && <div className="text-red-500 text-[10px] text-center font-bold">{error}</div>}
+              {error && <div className="text-danger text-xs text-center font-semibold">{error}</div>}
 
               <button
                 onClick={handleCreateIdentity}
                 disabled={loading}
-                className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2"
+                className={authStyles.buttonPrimary}
               >
                 {loading ? <Loader2 className="animate-spin" /> : <ArrowRight />} SIMPAN & LANJUT
               </button>
@@ -567,11 +598,11 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
           {stage === "SETUP_PIN" && (
             <div className="space-y-6 animate-slide-up text-center">
-              <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-full flex items-center justify-center mx-auto border border-amber-500/20 mb-4">
+              <div className="w-16 h-16 bg-warning/10 text-warning rounded-full flex items-center justify-center mx-auto border border-warning/20 mb-4">
                 <KeyRound size={28} />
               </div>
               <h2 className={authStyles.title}>Kunci Perangkat</h2>
-              <p className="text-xs text-neutral-500">
+              <p className="text-sm text-text-muted">
                 PIN ini hanya tersimpan di perangkat ini untuk enkripsi lokal. Login berikutnya HANYA menggunakan PIN ini.
               </p>
 
@@ -580,13 +611,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 inputMode="numeric"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value.slice(0, 6))}
-                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--border)]/70 rounded-2xl py-5 text-center text-3xl font-black text-[color:var(--text)] tracking-[0.5em] focus:border-amber-500 outline-none shadow-[var(--shadow-soft)]"
+                className="w-full bg-[color:var(--surface-2)] border border-[color:var(--border)] rounded-[var(--radius-lg)] py-5 text-center text-3xl font-semibold text-[color:var(--text)] tracking-[0.4em] focus:border-[color:var(--primary)] outline-none shadow-[var(--shadow-soft)]"
                 placeholder="****"
               />
 
-              {error && <p className="text-red-500 text-[10px] font-bold">{error}</p>}
+              {error && <p className="text-danger text-xs font-semibold">{error}</p>}
 
-              <button onClick={handleSetupPin} className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest">
+              <button onClick={handleSetupPin} className={authStyles.buttonPrimary}>
                 SET PASSCODE
               </button>
             </div>
@@ -598,26 +629,26 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 <div
                   className={`w-20 h-20 rounded-3xl mx-auto flex items-center justify-center mb-4 transition-all duration-500 ${
                     isHardLocked
-                      ? "bg-red-500/20 text-red-500"
-                      : "bg-emerald-500/10 text-emerald-500 shadow-[0_0_40px_-10px_rgba(16,185,129,0.3)]"
+                      ? "bg-danger/15 text-danger"
+                      : "bg-success/15 text-success shadow-[0_0_40px_-10px_rgba(34,197,94,0.2)]"
                   }`}
                 >
                   {isHardLocked ? <Lock size={32} /> : identity ? <Fingerprint size={32} /> : <Terminal size={32} />}
                 </div>
-                <h2 className="text-xl font-bold text-white uppercase tracking-tight">
+                <h2 className="text-xl font-semibold text-text tracking-tight">
                   {identity?.displayName || "SYSTEM LOCKED"}
                 </h2>
-                <p className="text-[10px] font-mono text-emerald-500 tracking-wider">{identity?.istokId || "AUTH_REQUIRED"}</p>
+                <p className="text-xs font-mono text-text-muted tracking-wider">{identity?.istokId || "AUTH_REQUIRED"}</p>
               </div>
 
               <div className="space-y-4">
                 {isHardLocked ? (
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-center">
+                  <div className="p-4 bg-danger/10 border border-danger/20 rounded-[var(--radius-lg)] text-center">
                     <div className="flex flex-col items-center gap-2">
-                      <ShieldAlert size={24} className="text-red-500" />
-                      <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">SECURITY LOCKOUT</p>
+                      <ShieldAlert size={24} className="text-danger" />
+                      <p className="text-xs font-semibold text-danger uppercase tracking-widest">SECURITY LOCKOUT</p>
                     </div>
-                    <p className="text-2xl font-mono text-white font-bold mt-2">
+                    <p className="text-2xl font-mono text-text font-semibold mt-2">
                       00:{Math.floor(countdown / 60)
                         .toString()
                         .padStart(2, "0")}
@@ -636,8 +667,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                       setPinInput(e.target.value.slice(0, 6));
                       setError(null);
                     }}
-                    className={`w-full bg-[color:var(--surface-2)] border rounded-2xl py-5 text-center text-3xl font-black text-[color:var(--text)] tracking-[0.5em] focus:outline-none transition-all placeholder:text-neutral-800 shadow-[var(--shadow-soft)] ${
-                      error ? "border-red-500/50" : "border-[color:var(--border)]/70 focus:border-[color:var(--accent)]"
+                    className={`w-full bg-[color:var(--surface-2)] border rounded-[var(--radius-lg)] py-5 text-center text-3xl font-semibold text-[color:var(--text)] tracking-[0.4em] focus:outline-none transition-all placeholder:text-text-muted shadow-[var(--shadow-soft)] ${
+                      error ? "border-danger/50" : "border-[color:var(--border)] focus:border-[color:var(--primary)]"
                     }`}
                     placeholder="******"
                     disabled={loading}
@@ -646,7 +677,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                 )}
 
                 {error && !isHardLocked && (
-                  <p className="text-center text-[10px] text-red-500 font-bold tracking-widest">{error}</p>
+                  <p className="text-center text-xs text-danger font-semibold tracking-widest">{error}</p>
                 )}
               </div>
 
@@ -655,7 +686,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                   <button
                     type="submit"
                     disabled={loading || pinInput.length < 4}
-                    className="w-full py-4 bg-white text-black hover:bg-neutral-200 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-50"
+                    className={authStyles.buttonPrimary}
                   >
                     {loading ? <Loader2 className="animate-spin" /> : <ArrowRight />} BUKA
                   </button>
@@ -664,7 +695,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                     <button
                       type="button"
                       onClick={handleBiometricScan}
-                      className="w-full py-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-2 transition-all active:scale-95 border border-emerald-500/30"
+                      className="w-full py-3 bg-success/10 hover:bg-success/20 text-success rounded-[var(--radius-lg)] font-semibold text-xs tracking-widest flex items-center justify-center gap-2 transition-all active:scale-[0.99] border border-success/30"
                     >
                       <ScanFace size={16} /> RETRY FACE ID
                     </button>
@@ -674,14 +705,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
                     <button
                       type="button"
                       onClick={() => setStage("FORGOT_PIN")}
-                      className="text-neutral-500 text-[10px] font-bold tracking-widest hover:text-white transition-colors"
+                      className="text-text-muted text-xs font-semibold tracking-widest hover:text-text transition-colors"
                     >
                       LUPA PIN?
                     </button>
                     <button
                       type="button"
                       onClick={() => setStage("WELCOME")}
-                      className="text-neutral-500 text-[10px] font-bold tracking-widest hover:text-white transition-colors"
+                      className="text-text-muted text-xs font-semibold tracking-widest hover:text-text transition-colors"
                     >
                       GANTI AKUN
                     </button>
@@ -724,6 +755,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           )}
 
           {stage === "FORGOT_ACCOUNT" && <ForgotAccount onBack={() => setStage("WELCOME")} />}
+            </div>
+          </div>
         </div>
       </div>
     </div>

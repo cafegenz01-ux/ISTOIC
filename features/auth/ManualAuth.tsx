@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   User,
 } from 'lucide-react';
+import { FormField } from '../../components/ui/FormField';
 import { auth, db, ensureAuthPersistence, firebaseConfigError } from '../../services/firebaseConfig';
 import {
   createUserWithEmailAndPassword,
@@ -90,7 +91,7 @@ const AuthAlert: React.FC<{ tone: 'error' | 'info' | 'success'; message: string 
     tone === 'error' ? authStyles.alertError : tone === 'success' ? authStyles.alertSuccess : authStyles.alertInfo;
 
   return (
-    <div className={className}>
+    <div className={className} role="status">
       {tone === 'error' && <AlertTriangle size={12} />}
       {message}
     </div>
@@ -168,8 +169,7 @@ export const LoginManual: React.FC<{ onBack: () => void; onSuccess: ManualAuthSu
       {info && <AuthAlert tone="info" message={info} />}
 
       <div className="space-y-4">
-        <div className="space-y-2">
-          <label className={authStyles.label}>Email Address</label>
+        <FormField label="Email Address">
           <div className="relative">
             <input
               type="email"
@@ -179,11 +179,10 @@ export const LoginManual: React.FC<{ onBack: () => void; onSuccess: ManualAuthSu
               placeholder="nama@email.com"
               autoComplete="email"
             />
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
-        </div>
-        <div className="space-y-2">
-          <label className={authStyles.label}>Password</label>
+        </FormField>
+        <FormField label="Password">
           <div className="relative">
             <input
               type="password"
@@ -193,9 +192,9 @@ export const LoginManual: React.FC<{ onBack: () => void; onSuccess: ManualAuthSu
               placeholder="********"
               autoComplete="current-password"
             />
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
-        </div>
+        </FormField>
         <button onClick={handleLogin} disabled={loading} className={authStyles.buttonPrimary}>
           {loading ? <Loader2 className="animate-spin" size={16} /> : <ArrowRight size={16} />} MASUK
         </button>
@@ -282,8 +281,7 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
       {info && <AuthAlert tone="success" message={info} />}
 
       <div className="space-y-4">
-        <div className="space-y-2">
-          <label className={authStyles.label}>Nama Lengkap</label>
+        <FormField label="Nama Lengkap">
           <div className="relative">
             <input
               type="text"
@@ -293,11 +291,10 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
               placeholder="Nama Anda"
               autoComplete="name"
             />
-            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <User className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
-        </div>
-        <div className="space-y-2">
-          <label className={authStyles.label}>Email Address</label>
+        </FormField>
+        <FormField label="Email Address">
           <div className="relative">
             <input
               type="email"
@@ -307,11 +304,10 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
               placeholder="nama@email.com"
               autoComplete="email"
             />
-            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
-        </div>
-        <div className="space-y-2">
-          <label className={authStyles.label}>Password</label>
+        </FormField>
+        <FormField label="Password">
           <div className="relative">
             <input
               type="password"
@@ -321,15 +317,15 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
               placeholder="Minimal 8 karakter"
               autoComplete="new-password"
             />
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
           <p
-            className={`text-[10px] font-bold ${
+            className={`text-xs font-semibold ${
               passwordScore === 'strong'
-                ? 'text-emerald-400'
+                ? 'text-success'
                 : passwordScore === 'medium'
-                  ? 'text-amber-400'
-                  : 'text-neutral-500'
+                  ? 'text-warning'
+                  : 'text-text-muted'
             }`}
           >
             {passwordScore === 'empty'
@@ -340,9 +336,8 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
                   ? 'Password cukup, tambah angka/huruf besar untuk kuat.'
                   : 'Password kuat.'}
           </p>
-        </div>
-        <div className="space-y-2">
-          <label className={authStyles.label}>Konfirmasi Password</label>
+        </FormField>
+        <FormField label="Konfirmasi Password">
           <div className="relative">
             <input
               type="password"
@@ -352,9 +347,9 @@ export const RegisterManual: React.FC<{ onBack: () => void; onSuccess: ManualAut
               placeholder="Ulangi password"
               autoComplete="new-password"
             />
-            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-500" size={18} />
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={18} />
           </div>
-        </div>
+        </FormField>
         <button onClick={handleRegister} disabled={loading} className={authStyles.buttonSecondary}>
           {loading ? <Loader2 className="animate-spin" size={16} /> : <ShieldCheck size={16} />} SELESAI & MASUK
         </button>
@@ -410,11 +405,11 @@ export const ForgotPin: React.FC<{ onBack: () => void; onSuccess: () => void; ex
   return (
     <div className="w-full animate-slide-up">
       <div className="text-center mb-6">
-        <div className="w-16 h-16 mx-auto bg-amber-500/10 rounded-full flex items-center justify-center border border-amber-500/20 mb-4 text-amber-500">
+        <div className="w-16 h-16 mx-auto bg-warning/10 rounded-full flex items-center justify-center border border-warning/20 mb-4 text-warning">
           <KeyRound size={32} />
         </div>
         <h2 className={authStyles.title}>Reset PIN Akses</h2>
-        <p className="text-[10px] text-neutral-500 mt-2 max-w-[250px] mx-auto leading-relaxed">
+        <p className="text-xs text-text-muted mt-2 max-w-[250px] mx-auto leading-relaxed">
           PIN hanya tersimpan di perangkat ini. Reset PIN akan membuat data terenkripsi lama tidak terbuka.
         </p>
       </div>
@@ -424,7 +419,7 @@ export const ForgotPin: React.FC<{ onBack: () => void; onSuccess: () => void; ex
 
       <div className="space-y-4">
         {expectedEmail && (
-          <div className="relative">
+          <FormField label="Email akun">
             <input
               type="email"
               value={emailCheck}
@@ -433,25 +428,25 @@ export const ForgotPin: React.FC<{ onBack: () => void; onSuccess: () => void; ex
               placeholder="Konfirmasi email akun"
               autoComplete="email"
             />
-          </div>
+          </FormField>
         )}
-        <div className="relative">
+        <FormField label="PIN baru">
           <input
             type="password"
             inputMode="numeric"
             maxLength={6}
             value={newPin}
             onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, ''))}
-            className="w-full bg-[#121214] border border-white/10 rounded-2xl px-5 py-4 text-center text-2xl font-mono text-white focus:border-amber-500 outline-none tracking-[0.5em]"
+            className={`${authStyles.input} text-center text-2xl font-mono tracking-[0.5em]`}
             placeholder="BARU"
           />
-        </div>
-        <label className="flex items-start gap-2 text-[10px] text-neutral-400">
+        </FormField>
+        <label className="flex items-start gap-2 text-xs text-text-muted">
           <input
             type="checkbox"
             checked={ackRisk}
             onChange={(e) => setAckRisk(e.target.checked)}
-            className="mt-0.5"
+            className="mt-0.5 accent-[color:var(--primary)]"
           />
           Saya memahami bahwa reset PIN dapat membuat data terenkripsi lama tidak bisa diakses.
         </label>
@@ -459,7 +454,7 @@ export const ForgotPin: React.FC<{ onBack: () => void; onSuccess: () => void; ex
         <button
           onClick={handleReset}
           disabled={loading}
-          className="w-full py-4 bg-amber-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-amber-900/20 disabled:opacity-70"
+          className={authStyles.buttonPrimary}
         >
           {loading ? <Loader2 className="animate-spin" /> : <RefreshCw size={16} />} ATUR ULANG PIN
         </button>
@@ -506,42 +501,43 @@ export const ForgotAccount: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   return (
     <div className="w-full animate-slide-up">
       <div className="text-center mb-8">
-        <div className="w-16 h-16 mx-auto bg-blue-500/10 rounded-full flex items-center justify-center border border-blue-500/20 mb-4 text-blue-500">
+        <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center border border-primary/20 mb-4 text-primary">
           <HelpCircle size={32} />
         </div>
         <h2 className={authStyles.title}>Pemulihan Akun</h2>
-        <p className="text-xs text-neutral-400 mt-2">Masukkan email terdaftar untuk menerima link reset password.</p>
+        <p className="text-xs text-text-muted mt-2">Masukkan email terdaftar untuk menerima link reset password.</p>
       </div>
 
       <div className="space-y-3">
-        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-left space-y-3">
-          <h4 className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
-            <Mail size={12} /> Email Recovery
+        <div className="p-4 bg-surface-2 rounded-[var(--radius-lg)] border border-border text-left space-y-3">
+          <h4 className="text-xs font-semibold text-text flex items-center gap-2">
+            <Mail size={12} className="text-primary" /> Email Recovery
           </h4>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-3">
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 bg-black border border-white/10 rounded-lg px-3 py-2 text-xs text-white"
+              className={`${authStyles.input} flex-1`}
               placeholder="email@anda.com"
+              autoComplete="email"
             />
             <button
               onClick={handleSendReset}
               disabled={loading}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold disabled:opacity-60"
+              className="px-4 py-3 rounded-[var(--radius-lg)] text-xs font-semibold bg-[color:var(--primary)] text-[color:var(--primary-contrast)] disabled:opacity-60"
             >
               {loading ? '...' : 'KIRIM'}
             </button>
           </div>
-          {status && <p className="text-[10px] text-emerald-400">{status}</p>}
-          {error && <p className="text-[10px] text-red-400">{error}</p>}
+          {status && <p className="text-xs text-success">{status}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
         </div>
 
-        <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/10 text-left flex gap-3">
-          <AlertTriangle size={20} className="text-amber-500 shrink-0" />
+        <div className="p-4 bg-warning/10 rounded-[var(--radius-lg)] border border-warning/20 text-left flex gap-3">
+          <AlertTriangle size={20} className="text-warning shrink-0" />
           <div>
-            <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Manual Support</h4>
-            <p className="text-[10px] text-neutral-400">
+            <h4 className="text-xs font-semibold text-warning mb-1">Manual Support</h4>
+            <p className="text-xs text-text-muted">
               Jika kehilangan akses total, silakan hubungi tim IT IStoic melalui channel aman.
             </p>
           </div>

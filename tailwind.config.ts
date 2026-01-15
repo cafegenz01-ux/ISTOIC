@@ -23,7 +23,7 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        sans: ['ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
         mono: [
           '"JetBrains Mono"',
           'ui-monospace',
@@ -46,6 +46,9 @@ const config: Config = {
         text: withOpacity('--text-rgb'),
         'text-muted': withOpacity('--text-muted-rgb'),
         'text-invert': withOpacity('--text-invert-rgb'),
+        primary: withOpacity('--primary-rgb'),
+        'primary-contrast': withOpacity('--primary-contrast-rgb'),
+        ring: withOpacity('--ring-rgb'),
         accent: withOpacity('--accent-rgb'),
         'accent-2': withOpacity('--accent-2-rgb'),
         danger: withOpacity('--danger-rgb'),
