@@ -1,0 +1,222 @@
+
+<!DOCTYPE html>
+<html lang="id" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- CRITICAL ERROR SUPPRESSION (Must run before any other script) -->
+    <script>
+      (function() {
+        // Suppress "Cannot redefine property: ethereum" from aggressive Wallet Extensions
+        var _error = console.error;
+        console.error = function(msg) {
+           if (typeof msg === 'string' && (
+             msg.includes('redefine property: ethereum') || 
+             msg.includes('ethereum')
+           )) return;
+           _error.apply(console, arguments);
+        };
+        
+        window.addEventListener('error', function(e) {
+          if (e.message && (
+             e.message.includes('redefine property: ethereum') || 
+             e.message.includes('ethereum.isMetaMask') ||
+             e.filename?.includes('inpage.js')
+          )) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          if (e.reason && e.reason.message && (
+             e.reason.message.includes('redefine property: ethereum') ||
+             e.reason.message.includes('ethereum')
+          )) {
+            e.preventDefault();
+          }
+        });
+      })();
+    </script>
+
+    <!-- CSP: Security Policy (Hardened & Updated) -->
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://webrtc.github.io https://apis.google.com https://accounts.google.com https://*.firebaseapp.com https://www.googletagmanager.com;
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com data:;
+        img-src 'self' data: blob: https://image.pollinations.ai https://*.googleusercontent.com https://grainy-gradients.vercel.app https://www.google.com;
+        connect-src 'self' 
+            https://generativelanguage.googleapis.com 
+            https://api.openai.com 
+            https://api.groq.com 
+            https://api.deepseek.com 
+            https://api.x.ai 
+            https://openrouter.ai 
+            https://api.mistral.ai 
+            https://api-inference.huggingface.co
+            https://api.elevenlabs.io
+            https://image.pollinations.ai
+            https://www.google.com
+            https://identitytoolkit.googleapis.com
+            https://securetoken.googleapis.com
+            https://firestore.googleapis.com
+            https://*.firebaseio.com
+            https://*.metered.live
+            wss://*.metered.live
+            https://*.peerjs.com
+            wss://*.peerjs.com
+            wss://generativelanguage.googleapis.com
+            https://grainy-gradients.vercel.app;
+        frame-src 'self' https://*.firebaseapp.com https://apis.google.com https://accounts.google.com;
+        media-src 'self' blob: data: mediastream:;
+        worker-src 'self' blob:;
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';
+        upgrade-insecure-requests;
+    ">
+    
+    <!-- CRITICAL FOR IOS PWA: viewport-fit=cover removes white bars on notch devices -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- Status Bar Style for iOS -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark light" />
+
+    <!-- PWA Settings -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ISTOIC AI" />
+    
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" href="https://grainy-gradients.vercel.app/noise.svg" />
+
+    <title>ISTOIC AI | Intelligent Workspace</title>
+    
+    <!-- Tailwind via CDN for rapid dev -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&display=swap" rel="stylesheet">
+    
+    <!-- Adapter for WebRTC compatibility -->
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              bg: 'rgb(var(--bg-rgb) / <alpha-value>)',
+              'bg-elevated': 'rgb(var(--bg-elevated-rgb) / <alpha-value>)',
+              surface: 'rgb(var(--surface-rgb) / <alpha-value>)',
+              'surface-2': 'rgb(var(--surface-2-rgb) / <alpha-value>)',
+              border: 'rgb(var(--border-rgb) / <alpha-value>)',
+              text: 'rgb(var(--text-rgb) / <alpha-value>)',
+              'text-muted': 'rgb(var(--text-muted-rgb) / <alpha-value>)',
+              'text-invert': 'rgb(var(--text-invert-rgb) / <alpha-value>)',
+              accent: 'rgb(var(--accent-rgb) / <alpha-value>)',
+              'accent-2': 'rgb(var(--accent-2-rgb) / <alpha-value>)',
+              success: 'rgb(var(--success-rgb) / <alpha-value>)',
+              danger: 'rgb(var(--danger-rgb) / <alpha-value>)',
+              warning: 'rgb(var(--warning-rgb) / <alpha-value>)',
+              info: 'rgb(var(--info-rgb) / <alpha-value>)',
+              // legacy aliases
+              skin: {
+                main: 'rgb(var(--bg-rgb) / <alpha-value>)',
+                card: 'rgb(var(--surface-rgb) / <alpha-value>)',
+                surface: 'rgb(var(--surface-rgb) / <alpha-value>)',
+                'surface-hover': 'rgb(var(--surface-2-rgb) / <alpha-value>)',
+                text: 'rgb(var(--text-rgb) / <alpha-value>)',
+                muted: 'rgb(var(--text-muted-rgb) / <alpha-value>)',
+                border: 'rgb(var(--border-rgb) / <alpha-value>)',
+                highlight: 'rgb(var(--accent-rgb) / <alpha-value>)',
+              },
+              'on-accent': 'rgb(var(--on-accent-rgb) / <alpha-value>)',
+            },
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+              serif: ['Playfair Display', 'serif'],
+            },
+            animation: {
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'spin-slow': 'spin 8s linear infinite',
+              'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'slide-down': 'slideDown 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+              'fade-in': 'fadeIn 0.4s ease-out forwards',
+              'float': 'float 6s ease-in-out infinite',
+            },
+            keyframes: {
+              slideUp: {
+                '0%': { opacity: '0', transform: 'translate3d(0, 20px, 0)' },
+                '100%': { opacity: '1', transform: 'translate3d(0, 0, 0)' },
+              },
+              slideDown: {
+                '0%': { opacity: '0', transform: 'translate3d(0, -20px, 0)' },
+                '100%': { opacity: '1', transform: 'translate3d(0, 0, 0)' },
+              },
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              float: {
+                '0%, 100%': { transform: 'translate3d(0, 0, 0)' },
+                '50%': { transform: 'translate3d(0, -10px, 0)' },
+              }
+            },
+            screens: {
+              'xs': '375px',
+            }
+          },
+        },
+      }
+    </script>
+    <script type="importmap">
+{
+  "imports": {
+    "webrtc-adapter": "https://esm.sh/webrtc-adapter@^9.0.3",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
+    "uuid": "https://esm.sh/uuid@^13.0.0",
+    "peerjs": "https://esm.sh/peerjs@^1.5.5",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "@tanstack/react-query": "https://esm.sh/@tanstack/react-query@^5.90.16",
+    "zod": "https://esm.sh/zod@^4.3.5",
+    "groq-sdk": "https://esm.sh/groq-sdk@^0.37.0",
+    "openai": "https://esm.sh/openai@^6.15.0",
+    "vitest": "https://esm.sh/vitest@^4.0.16",
+    "clsx": "https://esm.sh/clsx@^2.1.1",
+    "tailwind-merge": "https://esm.sh/tailwind-merge@^3.4.0",
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "qrcode": "https://esm.sh/qrcode@^1.5.4",
+    "framer-motion": "https://esm.sh/framer-motion@^12.24.0",
+    "class-variance-authority": "https://esm.sh/class-variance-authority@^0.7.1",
+    "jsqr": "https://esm.sh/jsqr@1.4.2",
+    "react-qr-code": "https://esm.sh/react-qr-code@^2.0.18",
+    "firebase/": "https://esm.sh/firebase@^12.7.0/",
+    "react-virtuoso": "https://esm.sh/react-virtuoso@^4.18.1",
+    "next/": "https://esm.sh/next@^16.1.1/",
+    "vite-plugin-pwa": "https://esm.sh/vite-plugin-pwa@^1.2.0",
+    "url": "https://esm.sh/url@^0.11.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="theme-transition overflow-hidden antialiased selection:text-black">
+    <div id="root" class="h-full w-full overflow-hidden"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>

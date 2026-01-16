@@ -1,0 +1,9 @@
+{
+  "name": "Copy of v0.50",
+  "description": "A high-performance personal productivity terminal powered by the Hydra Multi-Link Engine and Gemini 3. Integrates logic-driven Stoic philosophy and raw creative potential.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

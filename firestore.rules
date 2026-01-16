@@ -1,0 +1,50 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Fungsi Helper
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Rate Limiting Logic (FIXED): 
+    // Safely handles missing fields (new docs or legacy data) using .get(field, default_value)
+    function isWithinRateLimit() {
+      // Default lastIdChange to far past if missing
+      let lastChange = resource.data.get('lastIdChange', timestamp.date(2000, 1, 1)); 
+      // Default count to 0 if missing
+      let count = resource.data.get('idChangeCount', 0);
+
+      // Allow write if: Time > 30 days OR Count < 2
+      let isResetting = request.time > lastChange + duration.value(30, 'd');
+      let isUnderLimit = count < 2;
+      
+      return isResetting || isUnderLimit;
+    }
+
+    // Aturan untuk Koleksi Users
+    match /users/{userId} {
+      // Baca: Hanya pemilik akun
+      allow read: if isAuthenticated() && isOwner(userId);
+      
+      // Buat: Authenticated user bisa membuat profil mereka sendiri
+      allow create: if isAuthenticated() && isOwner(userId);
+      
+      // Update: Pemilik akun, dengan validasi field & RATE LIMITING
+      allow update: if isAuthenticated() && isOwner(userId) 
+        && request.resource.data.uid == userId // UID tidak boleh berubah
+        && request.resource.data.email == resource.data.email // Email tidak boleh berubah
+        && isWithinRateLimit(); // SERVER-SIDE VALIDATION
+    }
+    
+    // Deny all others by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

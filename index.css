@@ -1,0 +1,1331 @@
+
+/* 
+  IStoicAI Base Styles v0.32 (60FPS Optimization)
+*/
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+
+  --bg: #f8f9fb;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f2f4f7;
+  --border: #e5e7eb;
+  --text: #0c0d10;
+  --text-muted: #6b7280;
+  --text-invert: #ffffff;
+  --primary: #2563eb;
+  --primary-contrast: #ffffff;
+  --ring: #3b82f6;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #22c55e;
+  --info: #38bdf8;
+  --shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+
+  /* legacy aliases */
+  --bg-main: var(--bg);
+  --bg-card: var(--surface);
+  --bg-surface: var(--surface-2);
+  --bg-surface-hover: var(--surface);
+  --text-main: var(--text);
+  --border-base: rgba(0, 0, 0, 0.08);
+  --border-highlight: var(--border);
+  --accent-color: var(--primary);
+  --accent-rgb: var(--primary-rgb);
+  --on-accent-color: var(--text-invert);
+  --on-accent-rgb: 255 255 255;
+  --accent-glow: rgba(13, 13, 13, 0.15);
+  --nav-accent: var(--primary);
+  --overlay-rgb: 0 0 0;
+  --focus: var(--ring);
+  --accent: var(--primary);
+  --accent-2: var(--success);
+
+  /* RGB tokens for Tailwind opacity support */
+  --bg-rgb: 248 249 251;
+  --bg-elevated-rgb: 255 255 255;
+  --surface-rgb: 255 255 255;
+  --surface-2-rgb: 242 244 247;
+  --border-rgb: 229 231 235;
+  --text-rgb: 12 13 16;
+  --text-muted-rgb: 107 114 128;
+  --text-invert-rgb: 255 255 255;
+  --primary-rgb: 37 99 235;
+  --primary-contrast-rgb: 255 255 255;
+  --ring-rgb: 59 130 246;
+  --accent-2-rgb: var(--success-rgb);
+  --danger-rgb: 239 68 68;
+  --warning-rgb: 245 158 11;
+  --success-rgb: 34 197 94;
+  --info-rgb: 56 189 248;
+  --focus-rgb: var(--ring-rgb);
+
+  /* iOS Safe Area Defaults - Enhanced for PWA & Capacitor */
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+  
+  /* iOS Viewport Height - Critical for PWA */
+  --vh: 1vh;
+  --dvh: 1dvh;
+
+  /* Design Tokens */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-serif: "Playfair Display", ui-serif, Georgia, "Times New Roman", serif;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --shadow-soft: 0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
+  --shadow-strong: 0 12px 32px rgba(15, 23, 42, 0.12), 0 4px 16px rgba(15, 23, 42, 0.08);
+  --shadow-bento: 0 8px 24px rgba(15, 23, 42, 0.1), 0 4px 12px rgba(15, 23, 42, 0.06);
+  
+  /* Bento Card Specific (Light Mode) */
+  --bento-radius: 24px;
+  --bento-gap: 16px;
+  --bento-padding: 24px;
+  --motion-fast: 120ms;
+  --motion-normal: 240ms;
+  --motion-slow: 420ms;
+  --z-nav: 1000;
+  --z-overlay: 1200;
+  --z-toast: 1300;
+}
+
+.dark {
+  color-scheme: dark;
+  /* Premium Dark Theme - Exceeds ChatGPT Quality */
+  --bg: #0a0a0b;
+  --bg-elevated: #0f0f11;
+  --surface: #121214;
+  --surface-2: #1a1a1c;
+  --surface-3: #242426;
+  --border: #2d2d30;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --text: #fafafa;
+  --text-muted: #a1a1a6;
+  --text-subtle: #6e6e73;
+  --text-invert: #0a0a0b;
+  --primary: #3b82f6;
+  --primary-contrast: #ffffff;
+  --ring: #60a5fa;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --success: #22c55e;
+  --info: #38bdf8;
+  --shadow: 0 26px 80px rgba(0, 0, 0, 0.65);
+  
+  /* Bento Grid Gradient Colors */
+  --gradient-purple: linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #a855f7 100%);
+  --gradient-teal: linear-gradient(135deg, #14b8a6 0%, #06b6d4 50%, #0891b2 100%);
+  --gradient-orange: linear-gradient(135deg, #f97316 0%, #fb923c 50%, #fdba74 100%);
+  --gradient-green: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%);
+  --gradient-red: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%);
+  --gradient-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%);
+  
+  /* Bento Card Accent Colors */
+  --bento-purple: #8b5cf6;
+  --bento-teal: #14b8a6;
+  --bento-orange: #f97316;
+  --bento-green: #10b981;
+  --bento-red: #ef4444;
+  --bento-blue: #3b82f6;
+
+  --bg-main: var(--bg);
+  --bg-card: var(--surface);
+  --bg-surface: var(--surface-2);
+  --bg-surface-hover: #15203a;
+  --text-main: var(--text);
+  --border-base: rgba(29, 41, 64, 0.9);
+  --border-highlight: rgba(29, 41, 64, 1);
+  --accent-color: var(--primary);
+  --on-accent-color: var(--text-invert);
+  --on-accent-rgb: 7 10 18;
+  --accent-glow: rgba(14, 165, 233, 0.18);
+  --nav-accent: var(--primary);
+  --overlay-rgb: 0 0 0;
+  --focus: var(--ring);
+  --accent: var(--primary);
+  --accent-2: var(--success);
+
+  --bg-rgb: 10 10 11;
+  --bg-elevated-rgb: 15 15 17;
+  --surface-rgb: 18 18 20;
+  --surface-2-rgb: 26 26 28;
+  --surface-3-rgb: 36 36 38;
+  --border-rgb: 45 45 48;
+  --text-rgb: 250 250 250;
+  --text-muted-rgb: 161 161 166;
+  --text-subtle-rgb: 110 110 115;
+  --text-invert-rgb: 10 10 11;
+  --primary-rgb: 59 130 246;
+  --primary-contrast-rgb: 255 255 255;
+  --ring-rgb: 96 165 250;
+  --accent-rgb: var(--primary-rgb);
+  --accent-2-rgb: var(--success-rgb);
+  --danger-rgb: 239 68 68;
+  --warning-rgb: 245 158 11;
+  --success-rgb: 34 197 94;
+  --info-rgb: 56 189 248;
+  --focus-rgb: var(--ring-rgb);
+  
+  /* Bento Gradient RGB Values */
+  --bento-purple-rgb: 139 92 246;
+  --bento-teal-rgb: 20 184 166;
+  --bento-orange-rgb: 249 115 22;
+  --bento-green-rgb: 16 185 129;
+  --bento-red-rgb: 239 68 68;
+  --bento-blue-rgb: 59 130 246;
+
+  /* Premium Shadows - Deeper and More Refined */
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-strong: 0 16px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-bento: 0 12px 32px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-glow: 0 0 24px rgba(var(--accent-rgb), 0.15);
+  
+  /* Bento Card Specific */
+  --bento-radius: 24px;
+  --bento-gap: 16px;
+  --bento-padding: 24px;
+}
+
+html {
+    height: 100%;
+    height: 100dvh; /* iOS Dynamic Viewport */
+    font-size: 16px;
+    overscroll-behavior-y: none;
+    background-color: var(--bg);
+    touch-action: manipulation;
+    /* iOS PWA & Capacitor Optimizations */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100dvh;
+  height: 100vh; /* Fallback for older browsers */
+  width: 100vw;
+  width: 100dvw; /* iOS Dynamic Viewport Width */
+  overflow: hidden;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color 0.4s ease, color 0.4s ease;
+  /* iOS PWA & Capacitor - Prevent pull-to-refresh */
+  overscroll-behavior: none;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+}
+
+/* Professional Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+  transition: background 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Firefox Scrollbar */
+* {
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+/* Focus styles for keyboard users (mobile + desktop) */
+:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: calc(var(--radius-sm));
+}
+
+/* Helper utility to ensure touch-friendly hit targets */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Respect user's reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+} 
+
+#root {
+  height: 100%;
+  height: 100dvh; /* iOS Dynamic Viewport */
+  width: 100%;
+  width: 100dvw; /* iOS Dynamic Viewport Width */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* iOS Safe Area Support */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  /* Prevent iOS bounce scroll */
+  overscroll-behavior: none;
+  position: relative;
+}
+
+/* --- OPTIMIZATION UTILITIES --- */
+
+/* GPU Acceleration Helper */
+.transform-gpu {
+    transform: translate3d(0,0,0);
+}
+
+/* Will Change Hint for Animations */
+.will-change-transform {
+    will-change: transform;
+}
+
+/* Low Power Mode Styles (Optional) */
+body.low-perf * {
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
+}
+
+/* --- TYPOGRAPHY SCALE --- */
+h1, .heading-1, .page-title { font-size: 1.5rem; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; }
+h2, .heading-2, .section-title { font-size: 1.125rem; line-height: 1.4; font-weight: 600; letter-spacing: -0.005em; }
+h3, .heading-3 { font-size: 1rem; line-height: 1.45; font-weight: 600; letter-spacing: -0.005em; }
+.body { font-size: 1rem; line-height: 1.6; font-weight: 500; }
+.body-sm { font-size: 0.9375rem; line-height: 1.55; font-weight: 500; }
+.caption { font-size: 0.8125rem; line-height: 1.4; font-weight: 500; letter-spacing: 0.01em; }
+.overline { font-size: 0.75rem; line-height: 1.3; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* --- EDITOR CONTENT --- */
+.editor-content p { margin: 0 0 0.75rem; }
+.editor-content p:last-child { margin-bottom: 0; }
+.editor-content h1, .editor-content h2, .editor-content h3 { margin: 1rem 0 0.5rem; }
+.editor-content ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+.editor-content ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+.editor-content li { margin: 0.25rem 0; }
+.editor-content blockquote { border-left: 3px solid var(--border); padding-left: 1rem; color: var(--text-muted); margin: 0.75rem 0; }
+.editor-content pre { background-color: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; overflow-x: auto; }
+.editor-content code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+
+/* --- SEMANTIC COLOR UTILITIES --- */
+@layer base {
+  .bg-skin-main { background-color: var(--bg); }
+  .bg-skin-card { background-color: var(--surface); }
+  .bg-skin-surface { background-color: var(--surface); }
+  .bg-skin-surface-hover { background-color: var(--surface-2); }
+  .bg-surface { background-color: var(--surface); }
+  .bg-surface-2 { background-color: var(--surface-2); }
+  .bg-border { background-color: var(--border); }
+  .text-skin-text, .text-text { color: var(--text); }
+  .text-skin-muted, .text-text-muted { color: var(--text-muted); }
+  .text-text-invert { color: var(--text-invert); }
+  .border-skin-border, .border-border { border-color: var(--border); }
+  .border-skin-highlight { border-color: var(--accent); }
+  .bg-accent { background-color: var(--accent); }
+  .bg-accent-2 { background-color: var(--accent-2); }
+  .text-accent { color: var(--accent); }
+  .text-accent-2 { color: var(--accent-2); }
+  .text-danger { color: var(--danger); }
+  .text-success { color: var(--success); }
+  .bg-danger { background-color: var(--danger); }
+  .bg-success { background-color: var(--success); }
+}
+
+/* --- SAFE AREA UTILITIES (iOS XR+) --- */
+.pt-safe { padding-top: max(1rem, var(--sat)); }
+.pb-safe { padding-bottom: max(1rem, var(--sab)); }
+.mt-safe { margin-top: max(1rem, var(--sat)); }
+.mb-safe { margin-bottom: max(1rem, var(--sab)); }
+
+/* GLOBAL SELECTION */
+::selection {
+  background-color: rgba(var(--accent-rgb), 0.3);
+  color: inherit;
+}
+
+/* GLOBAL NOISE TEXTURE */
+.bg-noise {
+  position: relative;
+}
+.bg-noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+  opacity: 0.03; 
+  pointer-events: none;
+  z-index: 50; 
+  mix-blend-mode: overlay;
+}
+
+/* SCROLLBAR REFINEMENT */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 10px;
+}
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+/* IOS INPUT ZOOM FIX */
+@media screen and (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px !important; 
+  }
+}
+
+/* ANIMATIONS */
+@keyframes aurora {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-aurora {
+  background-size: 200% 200%;
+  animation: aurora 20s ease infinite;
+  will-change: background-position;
+}
+
+@keyframes gradient-x {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-gradient-text {
+  background-size: 200% 200%;
+  animation: gradient-x 4s ease infinite;
+  will-change: background-position;
+}
+
+@keyframes slideUp {
+  0% { opacity: 0; transform: translate3d(0, 20px, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.animate-slide-up {
+    will-change: transform, opacity;
+    animation: slideUp 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out forwards;
+}
+
+@keyframes softFloat {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -6px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+.animate-soft-float {
+  animation: softFloat 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes sheen {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 0.3; }
+  50% { transform: translateX(120%); opacity: 0; }
+  100% { transform: translateX(120%); opacity: 0; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 10px rgba(var(--accent-rgb), 0.3); }
+  50% { box-shadow: 0 0 20px rgba(var(--accent-rgb), 0.6); }
+}
+.animate-pulse-glow {
+  animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes slideDown {
+  0% { opacity: 0; transform: translate3d(0, -15px, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.animate-slide-down {
+  animation: slideDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes slideLeft {
+  0% { opacity: 0; transform: translate3d(15px, 0, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.animate-slide-left {
+  animation: slideLeft 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes slideRight {
+  0% { opacity: 0; transform: translate3d(-15px, 0, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.animate-slide-right {
+  animation: slideRight 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes scaleIn {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-scale-in {
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes sheen {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 0.3; }
+  50% { transform: translateX(120%); opacity: 0; }
+  100% { transform: translateX(120%); opacity: 0; }
+}
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.12) 40%, transparent 70%);
+  animation: sheen 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* UTILITIES */
+.text-glow { text-shadow: 0 0 20px rgba(var(--accent-rgb), 0.6); }
+.border-glass { border: 1px solid var(--border-base); }
+.glass-card-3d {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* TERMINAL STYLES */
+.bg-terminal-void { background-color: #030304; position: relative; }
+.terminal-scanlines::before {
+  content: " "; display: block; position: absolute;
+  top: 0; left: 0; bottom: 0; right: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  z-index: 10; background-size: 100% 2px, 3px 100%; pointer-events: none; opacity: 0.15;
+}
+
+/* ==================== PROFESSIONAL ENHANCEMENTS ==================== */
+
+/* Professional Button Styles */
+button {
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Professional Form Styling */
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  transition: all 0.2s ease;
+}
+
+input:disabled, textarea:disabled, select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Improved Input Focus */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+
+/* Custom Select Arrow */
+select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 20px;
+  padding-right: 32px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+/* Link Styling */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+a:hover {
+  opacity: 0.8;
+}
+
+a:active {
+  opacity: 0.6;
+}
+
+/* Table Styling */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  background-color: var(--surface-2);
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+}
+
+td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+tr:hover {
+  background-color: var(--surface-2);
+}
+
+/* Code Block Styling */
+code {
+  background-color: var(--surface-2);
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+pre {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+pre code {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Badge / Label Styling */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 16px 0;
+}
+
+/* Loading Skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2), var(--surface), var(--surface-2));
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Error State Styling */
+.error-boundary {
+  background-color: var(--danger);
+  background-color: var(--danger);
+  color: white;
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid var(--danger);
+}
+
+.error-boundary-dark {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+/* Add/update these sections in index.css */
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* SYSTEM HEALTH RESPONSIVE UTILITIES */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* Smooth custom scrollbar for logs */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color:  var(--border) transparent;
+}
+
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+  background-clip: content-box;
+}
+
+/* Safe-area support for notched devices */
+@supports (padding: max(0px)) {
+  .system-health-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* MOBILE OPTIMIZATIONS */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+@media (max-width: 768px) {
+  /* Prevent layout shift on mobile scrollbar */
+  body {
+    overflow-y: scroll;
+  }
+
+  /* Larger touch targets on mobile */
+  button {
+    min-height: 44px;
+  }
+
+  /* Single column layout on small screens */
+  .grid-cols-3 {
+    grid-template-columns: repeat(auto-fit, minmax(100%, 1fr));
+  }
+
+  /* Hide desktop-only elements */
+  .lg\:col-span-4 {
+    grid-column: 1 / -1;
+  }
+
+  /* Improve card padding on mobile */
+  .p-6 {
+    padding: 1rem;
+  }
+
+  /* Prevent horizontal scroll on mobile */
+  body {
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 640px) {
+  h1 {
+    font-size: 1.5rem;
+  }
+
+  h3 {
+    font-size:  0.875rem;
+  }
+
+  /* Tighter spacing on small phones */
+  .gap-6 {
+    gap: 1rem;
+  }
+
+  .gap-4 {
+    gap:  0.75rem;
+  }
+
+  /* Stack filter buttons */
+  .flex-wrap {
+    gap: 0.5rem;
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* SCROLL STABILITY & NO JANK */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* Prevent scroll jank on momentum scroll (iOS) */
+.custom-scroll,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Avoid layout shift with absolute positioning */
+.min-h-0 {
+  min-height:  0;
+}
+
+/* Prevent flex shrinking issues */
+.flex-1 {
+  min-width: 0;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* PWA / CAPACITOR SPECIFIC */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* Prevent zoom on input focus (iOS) */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Prevent double-tap zoom on buttons */
+button {
+  touch-action: manipulation;
+}
+
+/* Smooth transitions on mobile */
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* STATUS COLORS & ACCESSIBILITY */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* Ensure sufficient color contrast */
+.text-success {
+  color: var(--success);
+}
+
+.text-warning {
+  color: var(--warning);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+/* Smooth status transitions */
+.bg-success\/10,
+.bg-warning\/10,
+.bg-danger\/10 {
+  transition: background-color 200ms ease-out;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+/* ANIMATION IMPROVEMENTS */
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity:  1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-pulse {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==================== iOS VIEWPORT FOUNDATION ==================== */
+
+/* iOS Dynamic Viewport Height Utilities */
+.app-dvh {
+  height: 100dvh;
+  height: 100vh; /* Fallback for older browsers */
+}
+
+.min-app-dvh {
+  min-height: 100dvh;
+  min-height: 100vh; /* Fallback */
+}
+
+/* iOS Safe Area Utilities */
+.safe-t {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-b {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-l {
+  padding-left: env(safe-area-inset-left);
+}
+
+.safe-r {
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Overscroll Prevention */
+.overscroll-none {
+  overscroll-behavior: none;
+}
+
+/* iOS Input Zoom Prevention (CRITICAL) */
+/* Ensures all inputs have font-size >= 16px to prevent iOS zoom */
+@media screen and (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+  
+  /* Preserve relative sizing for specific classes */
+  input.text-sm,
+  textarea.text-sm,
+  select.text-sm {
+    font-size: max(16px, 0.875rem) !important;
+  }
+  
+  input.text-xs,
+  textarea.text-xs,
+  select.text-xs {
+    font-size: 16px !important; /* Force 16px even for xs */
+  }
+}
+
+/* ==================== SCROLL ARCHITECTURE ==================== */
+
+/* Ensure html/body don't create double scroll */
+html {
+  height: 100%;
+  overflow: hidden; /* Prevent body scroll */
+}
+
+body {
+  height: 100%;
+  overflow: hidden; /* Single scroll container per view */
+}
+
+#root {
+  min-height: 100dvh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Custom Scrollbar (Professional) */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}
+
+/* ==================== MODAL/DIALOG iOS FIXES ==================== */
+
+/* Modal Container Safe Height */
+.modal-container {
+  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
+  max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
+}
+
+/* Modal Content Scrollable */
+.modal-content {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Modal Footer Sticky */
+.modal-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Reduce backdrop-filter on mobile (performance) */
+@media (max-width: 768px) {
+  .backdrop-blur-xl {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  
+  .backdrop-blur-2xl {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+/* ==================== KEYBOARD OFFSET SUPPORT ==================== */
+
+/* CSS Variable for keyboard offset (set by JS) */
+:root {
+  --keyboard-offset: 0px;
+}
+
+/* Apply keyboard offset to bottom elements */
+.with-keyboard-offset {
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--keyboard-offset));
+}
+
+/* ==================== PERFORMANCE OPTIMIZATIONS ==================== */
+
+/* GPU Acceleration for transforms */
+.transform-gpu {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+}
+
+/* Will-change hints (use sparingly) */
+.will-change-transform {
+  will-change: transform;
+}
+
+.will-change-scroll {
+  will-change: scroll-position;
+}
+
+/* ==================== TOUCH IMPROVEMENTS ==================== */
+
+/* Remove tap highlight on iOS */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Touch action optimization */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+/* Prevent text selection during drag */
+.no-select {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* ==================== ACCESSIBILITY ==================== */
+
+/* Ensure minimum touch target size */
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Focus visible for keyboard users */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+/* ==================== REDUCED MOTION ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+  /* ==================== MINIMAL iOS HELPERS ==================== */
+  /* dvh utilities */
+  .app-dvh {
+    height: 100dvh;
+    height: 100vh;
+  }
+  .min-app-dvh {
+    min-height: 100dvh;
+    min-height: 100vh;
+  }
+  /* safe-area utilities */
+  .safe-t {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-b {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* iOS input zoom prevention */
+  input, textarea, select {
+    font-size: 16px;
+  }
+
+/* ==================== BENTO GRID SYSTEM ==================== */
+
+/* Bento Grid Container */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--bento-gap, 16px);
+  padding: var(--bento-gap, 16px);
+}
+
+/* Bento Grid - Responsive for iOS */
+@media (max-width: 768px) {
+  .bento-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+}
+
+/* Bento Card Base Styles */
+.bento-card {
+  border-radius: var(--bento-radius, 24px);
+  padding: var(--bento-padding, 24px);
+  box-shadow: var(--shadow-bento);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.bento-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.bento-card:hover::before {
+  opacity: 1;
+}
+
+/* Bento Card Interactive States */
+.bento-card-interactive {
+  cursor: pointer;
+}
+
+.bento-card-interactive:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-strong);
+}
+
+.bento-card-interactive:active {
+  transform: translateY(-2px) scale(0.98);
+}
+
+/* Bento Gradient Overlays */
+.bento-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.1;
+  background: var(--gradient-purple);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.bento-card:hover .bento-gradient-overlay {
+  opacity: 0.15;
+}
+
+/* iOS Safe Area Support for Bento Grid */
+@supports (padding: max(0px)) {
+  .bento-grid {
+    padding-left: max(var(--bento-gap, 16px), env(safe-area-inset-left));
+    padding-right: max(var(--bento-gap, 16px), env(safe-area-inset-right));
+    padding-top: max(var(--bento-gap, 16px), env(safe-area-inset-top));
+    padding-bottom: max(var(--bento-gap, 16px), env(safe-area-inset-bottom));
+  }
+}
+
+/* Bento Card Content Spacing */
+.bento-card-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Bento Card Typography */
+.bento-card-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+.bento-card-description {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+/* Bento Card Icons */
+.bento-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  margin-bottom: 1rem;
+}
+
+/* ==================== iOS PWA & CAPACITOR OPTIMIZATIONS ==================== */
+
+/* Prevent text selection during drag on iOS */
+.bento-card {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* Smooth scrolling for iOS */
+.bento-grid-container {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* GPU Acceleration for Bento Cards */
+.bento-card {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .bento-card,
+  .bento-card::before,
+  .bento-gradient-overlay {
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  .bento-card-interactive:hover {
+    transform: none !important;
+  }
+}

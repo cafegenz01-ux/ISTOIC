@@ -1,0 +1,54 @@
+
+{
+  "name": "ISTOIC AI",
+  "short_name": "ISTOIC",
+  "description": "Asisten produktivitas dengan AI untuk catatan, chat, dan neural tools.",
+  "id": "istoic-ai",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "minimal-ui"],
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "categories": ["productivity", "utilities", "artificial-intelligence"],
+  "icons": [
+    {
+      "src": "https://grainy-gradients.vercel.app/noise.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "https://grainy-gradients.vercel.app/noise.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "https://grainy-gradients.vercel.app/noise.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Chat Asisten",
+      "short_name": "Asisten",
+      "description": "Mulai percakapan baru",
+      "url": "/",
+      "icons": [{ "src": "https://grainy-gradients.vercel.app/noise.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Buat Catatan",
+      "short_name": "Catatan",
+      "description": "Tulis ide baru",
+      "url": "/",
+      "icons": [{ "src": "https://grainy-gradients.vercel.app/noise.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    }
+  ]
+}
